@@ -4,6 +4,7 @@ Gather demo files into data/raw/demos.
     python -m src.data.collect --cs2-replays          # demos you downloaded in CS2 (Watch > Your Matches)
     python -m src.data.collect --from-dir PATH        # any folder: .dem, .dem.bz2, .zip (e.g. HLTV downloads)
     python -m src.data.collect --urls urls.txt        # direct links to .dem / .dem.bz2 files
+    python -m src.data.collect --gcpd page.html       # saved Steam "Personal Game Data" match history page
 
 HLTV ships demos as .rar; extract those first, then use --from-dir.
 """
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 CS2_REPLAYS = Path("steamapps/common/Counter-Strike Global Offensive/game/csgo/replays")
 MATCH_ID = re.compile(r"(\d{15,})_(\d+)")
+REPLAY_URL = re.compile(r"https?://replay\d+\.valve\.net/730/\d+_\d+\.dem\.bz2")
 
 
 def demo_key(name: str) -> str:
@@ -117,11 +119,18 @@ def download_urls(urls: list[str], dest_dir: Path) -> int:
     return count
 
 
+def gcpd_demo_urls(html_path: Path) -> list[str]:
+    """Replay links from a saved steamcommunity.com/my/gcpd/730 match history page."""
+    html = html_path.read_text(encoding="utf-8", errors="ignore")
+    return list(dict.fromkeys(REPLAY_URL.findall(html)))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Collect CS2 demos into one folder")
     ap.add_argument("--cs2-replays", action="store_true", help="import demos from your CS2 replays folder")
     ap.add_argument("--from-dir", type=Path)
     ap.add_argument("--urls", type=Path, help="text file with one demo URL per line")
+    ap.add_argument("--gcpd", type=Path, help="saved Steam Personal Game Data page (.html)")
     ap.add_argument("--output", type=Path, default=Path("data/raw/demos"))
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -138,7 +147,11 @@ def main():
     if args.urls:
         urls = [u.strip() for u in args.urls.read_text().splitlines() if u.strip()]
         download_urls(urls, args.output)
-    if not (args.cs2_replays or args.from_dir or args.urls):
+    if args.gcpd:
+        urls = gcpd_demo_urls(args.gcpd)
+        print(f"{len(urls)} replay links found in {args.gcpd}")
+        download_urls(urls, args.output)
+    if not (args.cs2_replays or args.from_dir or args.urls or args.gcpd):
         ap.print_help()
         return
     print(f"{len(list(args.output.glob('*.dem')))} demos in {args.output}")

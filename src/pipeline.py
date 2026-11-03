@@ -2,6 +2,7 @@
 
     python -m src.pipeline            # Steam (QR login on first run) + CS2 replays folder -> report
     python -m src.pipeline --no-steam # only demos already on disk
+    python -m src.pipeline --no-steam --gcpd "C:/Users/you/Downloads/Personal Game Data.html"
 
 Your steamid comes from the Steam login (data/steam_account.json), so the
 report treats everyone on the other team as the enemy.
@@ -45,12 +46,18 @@ def main():
     ap = argparse.ArgumentParser(description="Fetch demos for your account and build the opening report")
     ap.add_argument("--no-steam", action="store_true", help="skip the Steam download")
     ap.add_argument("--no-replays", action="store_true", help="skip the CS2 replays folder")
+    ap.add_argument("--gcpd", type=Path, action="append", default=[],
+                    help="saved Steam Personal Game Data page(s) with your match history")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     DEMOS.mkdir(parents=True, exist_ok=True)
 
     if not args.no_steam:
         fetch_from_steam()
+    for page in args.gcpd:
+        urls = collect.gcpd_demo_urls(page)
+        print(f"{len(urls)} replay links in {page.name} (expired ones are skipped)")
+        collect.download_urls(urls, DEMOS)
     if not args.no_replays:
         for folder in collect.find_cs2_replays():
             collect.import_dir(folder, DEMOS)
