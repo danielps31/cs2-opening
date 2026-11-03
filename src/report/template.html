@@ -87,10 +87,8 @@ input[type=range] { width: 200px; vertical-align: middle; }
   <p class="sub" id="summary"></p>
 
   <div class="controls">
-    <div><div class="label">Map</div><div class="seg" id="mapSeg"></div></div>
-    <div><div class="label">Pemain</div><div class="seg" id="whoSeg"></div></div>
-    <div><div class="label">Buy musuh</div><div class="seg" id="buySeg"></div></div>
     <div><div class="label">Pemain (nama Steam · Steam ID)</div><select id="playerSel"></select></div>
+    <div><div class="label">Map</div><div class="seg" id="mapSeg"></div></div>
   </div>
   <div id="sampleWarn"></div>
 
@@ -122,11 +120,11 @@ input[type=range] { width: 200px; vertical-align: middle; }
 
 
   <div class="section">
-    <h2>Saat kamu CT: musuh T ke mana di 60 detik awal?</h2>
+    <h2 id="tHead"></h2>
     <div class="grid">
       <div class="card" id="recoCard"></div>
       <div class="card"><h3 style="margin-top:0">Strategi tim T</h3><div id="tStrat"></div></div>
-      <div class="card"><h3 style="margin-top:0">Jumlah musuh per site (per ronde)</h3><div id="tCounts"></div></div>
+      <div class="card"><h3 style="margin-top:0">Jumlah pemain per site (per ronde)</h3><div id="tCounts"></div></div>
     </div>
     <div class="card" style="margin-top:16px">
       <h3 style="margin-top:0">Opening line paling sering (per pemain T)</h3><div id="tLines"></div>
@@ -137,7 +135,7 @@ input[type=range] { width: 200px; vertical-align: middle; }
   </div>
 
   <div class="section">
-    <h2>Saat kamu T: setup CT musuh</h2>
+    <h2 id="ctHead"></h2>
     <div class="grid">
       <div class="card" id="ctReco"></div>
       <div class="card"><h3 style="margin-top:0">Setup CT</h3><div id="ctSetups"></div></div>
@@ -167,12 +165,25 @@ const ROUTES = ["A", "B", "Mid", "unknown"];
 const COLORS = {A: "var(--a)", B: "var(--b)", Mid: "var(--mid)", unknown: "var(--unk)"};
 const nameOf = Object.fromEntries(DATA.roster);
 const DOT = Object.fromEntries(DATA.dot_columns.map((k, i) => [k, i]));
-const maps = [...new Set(DATA.teams.map(t => t.map_name))]
-  .sort((a, b) => DATA.teams.filter(t => t.map_name === b).length - DATA.teams.filter(t => t.map_name === a).length);
-// Deep link: #<map>[/<match number on that map>[/<round>]], e.g. #de_anubis/2/5
-const [hashMap, hashMatch, hashRound] = decodeURIComponent(location.hash.slice(1)).split("/");
-const state = {map: maps.includes(hashMap) ? hashMap : maps[0], who: "enemy", buy: "all", side: "T", t: Infinity, player: "", callouts: true, match: "", round: "", hitView: "dealt"};
-if (hashMatch) state.match = (DATA.matches.filter(m => m.map_name === state.map)[+hashMatch - 1] || {}).demo_id || "";
+// Which team each player was on in each demo, and the demos each player is in
+const teamOfPlayer = new Map(DATA.players.map(p => [p.demo_id + "|" + p.steamid, p.team_id]));
+const demosOf = new Map();
+DATA.players.forEach(p => { if (!demosOf.has(p.steamid)) demosOf.set(p.steamid, new Set()); demosOf.get(p.steamid).add(p.demo_id); });
+const inScope = demo => !state.player || demosOf.get(state.player).has(demo);
+const playerTeam = demo => teamOfPlayer.get(demo + "|" + state.player);
+const scopedMatches = () => DATA.matches.filter(m => inScope(m.demo_id));
+const scopedMaps = () => {
+  const count = {};
+  scopedMatches().forEach(m => count[m.map_name] = (count[m.map_name] || 0) + m.rounds);
+  return Object.keys(count).sort((a, b) => count[b] - count[a]);
+};
+
+// Deep link: #<map>[/<match number on that map>[/<round>[/<steamid>]]], e.g. #de_anubis/2/5
+const [hashMap, hashMatch, hashRound, hashPlayer] = decodeURIComponent(location.hash.slice(1)).split("/");
+const state = {map: "", side: "T", t: Infinity, player: "", callouts: true, match: "", round: "", hitView: "dealt"};
+state.player = demosOf.has(hashPlayer) ? hashPlayer : (demosOf.has(DATA.me.steamid) ? DATA.me.steamid : "");
+state.map = scopedMaps().includes(hashMap) ? hashMap : scopedMaps()[0];
+if (hashMatch) state.match = (scopedMatches().filter(m => m.map_name === state.map)[+hashMatch - 1] || {}).demo_id || "";
 if (hashRound) state.round = hashRound;
 const PLAYER_COLORS = ["#ff6b6b", "#4dabf7", "#ffd43b", "#69db7c", "#da77f2", "#ff922b", "#3bc9db", "#f783ac", "#a9e34b", "#ced4da"];
 const steamLink = (sid, name) => `<a href="https://steamcommunity.com/profiles/${esc(sid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
@@ -206,16 +217,17 @@ function splitBar(counts, total) {
   return `<div class="split">${ROUTES.map(r => counts[r] ? `<i class="${r}" style="width:${pct(counts[r], total)}%" title="${r} ${pct(counts[r], total)}%"></i>` : "").join("")}</div>`;
 }
 
-// Rows for the current filters. side = the enemy's side.
+// Team rounds for the current filters: with a player picked, only the team they were on
 function teamRows(side) {
-  return DATA.teams.filter(t => t.map_name === state.map && t.side === side && (!state.match || t.demo_id === state.match) &&
-    (state.who === "all" || t.is_enemy) && (state.buy === "all" || t.buy === state.buy));
+  return DATA.teams.filter(t => t.map_name === state.map && (!side || t.side === side) && (!state.match || t.demo_id === state.match) &&
+    inScope(t.demo_id) && (!state.player || t.team_id === playerTeam(t.demo_id)));
 }
 function playerRows(side) {
   return DATA.players.filter(p => p.map_name === state.map && p.side === side && (!state.match || p.demo_id === state.match) &&
-    (state.who === "all" || p.is_enemy) && (state.buy === "all" || p.buy === state.buy) &&
     (!state.player || p.steamid === state.player));
 }
+const whoText = () => state.player ? nameOf[state.player] : "semua pemain";
+const teamText = () => state.player ? `Tim ${nameOf[state.player]}` : "Semua tim";
 
 // Spread 5 defenders over the expected attackers per site
 function allocate(eA, eB, eMid) {
@@ -233,18 +245,19 @@ function renderT() {
   const stackA = rows.filter(r => r.n_A >= 3).length, stackB = rows.filter(r => r.n_B >= 3).length;
   const anyRush = rows.filter(r => r.rushers > 0).length;
   const alloc = allocate(eA, eB, eMid);
+  document.getElementById("tHead").textContent = `${teamText()} di sisi T: ke mana di 60 detik awal?`;
   document.getElementById("recoCard").innerHTML = n ? `
-    <h3 style="margin-top:0">Saran posisi CT kamu (${n} ronde)</h3>
+    <h3 style="margin-top:0">Saran posisi CT melawan mereka (${n} ronde)</h3>
     <div class="reco"><span class="pill A">${alloc.A} di A</span>${alloc.Mid ? `<span class="pill Mid">${alloc.Mid} di Mid</span>` : ""}<span class="pill B">${alloc.B} di B</span></div>
-    <p class="muted" style="margin:4px 0 0">Dibagi sesuai rata-rata musuh yang datang ke tiap site. Ini patokan kasar, bukan jaminan.</p>
+    <p class="muted" style="margin:4px 0 0">Dibagi sesuai rata-rata pemain T yang datang ke tiap site. Ini patokan kasar, bukan jaminan.</p>
     <div class="stats">
-      <div class="stat"><div class="v">${eA.toFixed(1)}</div><div class="k">rata-rata musuh ke A</div></div>
-      <div class="stat"><div class="v">${eB.toFixed(1)}</div><div class="k">rata-rata musuh ke B</div></div>
+      <div class="stat"><div class="v">${eA.toFixed(1)}</div><div class="k">rata-rata pemain ke A</div></div>
+      <div class="stat"><div class="v">${eB.toFixed(1)}</div><div class="k">rata-rata pemain ke B</div></div>
       <div class="stat"><div class="v">${eMid.toFixed(1)}</div><div class="k">tetap di Mid</div></div>
-      <div class="stat"><div class="v">${pct(stackA, n)}%</div><div class="k">≥3 musuh ke A</div></div>
-      <div class="stat"><div class="v">${pct(stackB, n)}%</div><div class="k">≥3 musuh ke B</div></div>
+      <div class="stat"><div class="v">${pct(stackA, n)}%</div><div class="k">≥3 pemain ke A</div></div>
+      <div class="stat"><div class="v">${pct(stackB, n)}%</div><div class="k">≥3 pemain ke B</div></div>
       <div class="stat"><div class="v">${pct(anyRush, n)}%</div><div class="k">ada yang rush (≤20 dtk)</div></div>
-    </div>` : `<p class="muted">Belum ada ronde musuh di sisi T untuk filter ini.</p>`;
+    </div>` : `<p class="muted">Belum ada ronde sisi T untuk pilihan ini.</p>`;
 
   const strat = countBy(rows, r => r.strategy).map(([k, v]) => [k, v, k.startsWith("A") ? "A" : k.startsWith("B") ? "B" : ""]);
   const smallRush = rows.filter(r => r.rushers > 0 && r.rushers < 3);
@@ -294,15 +307,16 @@ function renderCT() {
   const n = rows.length;
   const eA = mean(rows.map(r => r.n_A)), eB = mean(rows.map(r => r.n_B)), eMid = mean(rows.map(r => r.n_Mid));
   const thin = eA <= eB ? "A" : "B";
+  document.getElementById("ctHead").textContent = `${teamText()} di sisi CT: setup`;
   document.getElementById("ctReco").innerHTML = n ? `
     <h3 style="margin-top:0">Site paling tipis (${n} ronde)</h3>
     <div class="reco"><span class="pill ${thin}">Site ${thin}</span></div>
-    <p class="muted" style="margin:4px 0 0">Rata-rata CT musuh di detik ke-20.</p>
+    <p class="muted" style="margin:4px 0 0">Rata-rata pemain CT di detik ke-20.</p>
     <div class="stats">
       <div class="stat"><div class="v">${eA.toFixed(1)}</div><div class="k">CT di A</div></div>
       <div class="stat"><div class="v">${eB.toFixed(1)}</div><div class="k">CT di B</div></div>
       <div class="stat"><div class="v">${eMid.toFixed(1)}</div><div class="k">CT di Mid</div></div>
-    </div>` : `<p class="muted">Belum ada ronde musuh di sisi CT untuk filter ini.</p>`;
+    </div>` : `<p class="muted">Belum ada ronde sisi CT untuk pilihan ini.</p>`;
   document.getElementById("ctSetups").innerHTML = bars(countBy(rows, r => r.strategy), n);
   document.getElementById("ctPlayers").innerHTML = playerTable(playerRows("CT"), false);
 }
@@ -314,7 +328,7 @@ function teamMembers(teamId) {
 }
 
 function renderTeams() {
-  const rows = DATA.teams.filter(t => t.map_name === state.map && (!state.match || t.demo_id === state.match) && (state.who === "all" || t.is_enemy) && (state.buy === "all" || t.buy === state.buy));
+  const rows = teamRows();
   const by = new Map();
   rows.forEach(r => { const k = r.team_id + r.side; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
   const groups = [...by.values()].sort((a, b) => b.length - a.length);
@@ -330,9 +344,6 @@ function mapPoints() {
   const matchIdx = state.match ? DATA.matches.findIndex(m => m.demo_id === state.match) : -1;
   return DATA.dots.filter(d => d[idx.map_name] === state.map && d[idx.t_seconds] <= state.t &&
     (state.side === "all" || d[idx.side] === state.side) &&
-    (state.who === "all" || d[idx.is_enemy]) &&
-    // A chosen round has its own buy type, so the buy filter only narrows the all-rounds heatmap
-    (state.round || state.buy === "all" || d[idx.buy] === state.buy) &&
     (!state.player || DATA.roster[d[idx.player]][0] === state.player) &&
     (matchIdx < 0 || d[idx.match] === matchIdx) &&
     (!state.round || d[idx.round_number] === +state.round));
@@ -383,11 +394,10 @@ function renderMap() {
   const all = DATA.dots.filter(d => d[DOT.map_name] === state.map);
   syncTimeSlider();
   const pts = mapPoints();
-  let roundTxt = "Semua ronde" + (state.buy !== "all" ? ` · buy ${state.buy}` : "");
+  let roundTxt = "Semua ronde";
   if (state.round) {
-    const buys = [...new Set(DATA.teams.filter(t => t.map_name === state.map && t.round_number === +state.round &&
-      (!state.match || t.demo_id === state.match) && (state.who === "all" || t.is_enemy)).map(t => t.buy))];
-    roundTxt = `Ronde ${state.round}` + (buys.length ? ` · musuh ${buys.join("/")}` : "");
+    const buys = [...new Set(teamRows().filter(t => t.round_number === +state.round).map(t => t.buy))];
+    roundTxt = `Ronde ${state.round}` + (buys.length ? ` · ${buys.join("/")} buy` : "");
     const ends = DATA.teams.filter(t => t.map_name === state.map && t.round_number === +state.round &&
       (!state.match || t.demo_id === state.match) && t.round_seconds != null).map(t => t.round_seconds);
     if (ends.length) roundTxt += state.match ? ` · ronde selesai di detik ke-${Math.round(ends[0])}`
@@ -448,7 +458,7 @@ function renderMap() {
       const sides = [...new Set(mapPoints().map(d => d[DOT.side]))];
       state.side = side;
       legend = `<span>Tidak ada pemain untuk filter ini di ronde ${state.round}.` +
-        (sides.length && side !== "all" ? ` Di ronde ini ${state.who === "enemy" ? "musuh" : "pemain"} ada di sisi ${sides.join(" & ")}, ganti Sisi ke ${sides[0]} atau Semua.` : "") + `</span>`;
+        (sides.length && side !== "all" ? ` Di ronde ini ${esc(whoText())} ada di sisi ${sides.join(" & ")}, ganti Sisi ke ${sides[0]} atau Semua.` : "") + `</span>`;
     }
   }
   document.getElementById("mapLegend").innerHTML = legend;
@@ -456,13 +466,19 @@ function renderMap() {
   document.getElementById("mapSvg").innerHTML = `<svg class="map" viewBox="${view.join(" ")}" role="img" aria-label="Peta ${esc(mapName(state.map))}">${bg}${layer}${labels}</svg>`;
 }
 
-function matchLabel(m, i) {
-  const n = DATA.matches.filter(x => x.map_name === m.map_name).indexOf(m) + 1;
-  return `${mapName(m.map_name)} #${n} · ${m.with_me ? "kamu " : ""}${m.score[0]}:${m.score[1]} · ${m.rounds} ronde${m.with_me ? "" : " (tanpa kamu)"}`;
+// Score from the picked player's side when there is one
+function matchLabel(m) {
+  const n = scopedMatches().filter(x => x.map_name === m.map_name).indexOf(m) + 1;
+  const wins = Object.entries(m.team_wins);
+  const mine = state.player ? wins.findIndex(([t]) => t === playerTeam(m.demo_id)) : -1;
+  if (mine > 0) wins.reverse();
+  const score = wins.map(([, w]) => w).join(":");
+  const result = mine < 0 ? "" : wins[0][1] > (wins[1] || [0, 0])[1] ? " menang" : wins[0][1] < (wins[1] || [0, 0])[1] ? " kalah" : " seri";
+  return `${mapName(m.map_name)} #${n} · ${score}${result} · ${m.rounds} ronde`;
 }
 
 function renderMatchPickers() {
-  const ms = DATA.matches.filter(m => m.map_name === state.map);
+  const ms = scopedMatches().filter(m => m.map_name === state.map);
   if (state.match && !ms.some(m => m.demo_id === state.match)) { state.match = ""; state.round = ""; }
   document.getElementById("matchSel").innerHTML = `<option value="">Semua match (${ms.length})</option>` +
     ms.map(m => `<option value="${esc(m.demo_id)}" ${m.demo_id === state.match ? "selected" : ""}>${esc(matchLabel(m))}</option>`).join("");
@@ -490,54 +506,53 @@ const weaponChip = (w, n, big) => `<span class="wicon${big ? " big" : ""}" title
   (DATA.icons[w] ? `<img src="${DATA.icons[w]}" alt="${esc(WEAPON_NAMES[w] || w)}">` : esc(WEAPON_NAMES[w] || w)) +
   (n != null ? `<b>${n}</b>` : "") + `</span>`;
 
-// Hit/kill rows: [match, round, attacker, victim, attacker side, attacker is enemy, ...]
+// Hit/kill rows: [match, round, attacker, victim, attacker side, ...]
 function combatRows(rows, role) {
   const matchIdx = state.match ? DATA.matches.findIndex(m => m.demo_id === state.match) : -1;
   const playerIdx = state.player ? DATA.roster.findIndex(r => r[0] === state.player) : -1;
   return rows.filter(r => {
     const m = DATA.matches[r[0]];
-    if (m.map_name !== state.map || (matchIdx >= 0 && r[0] !== matchIdx)) return false;
+    if (m.map_name !== state.map || (matchIdx >= 0 && r[0] !== matchIdx) || !inScope(m.demo_id)) return false;
     if (state.round && r[1] !== +state.round) return false;
     // role = whose side of the event we look at: the attacker (dealt) or the victim (taken)
     const sideOk = state.side === "all" || (role === "attacker" ? r[4] === state.side : r[4] !== state.side);
-    const enemy = role === "attacker" ? r[5] === 1 : m.with_me && r[5] === 0;
     const who = role === "attacker" ? r[2] : r[3];
-    return sideOk && (state.who === "all" || enemy) && (playerIdx < 0 || who === playerIdx);
+    return sideOk && (playerIdx < 0 || who === playerIdx);
   });
 }
 
 function renderCombat() {
   const scope = [state.match ? "match ini" : "semua match", state.round ? `ronde ${state.round}` : "semua ronde",
-    state.player ? nameOf[state.player] : (state.who === "enemy" ? "musuh" : "semua pemain")];
+    whoText()];
   document.getElementById("combatScope").textContent = "· " + scope.join(" · ");
 
   const kills = combatRows(DATA.kills, "attacker");
   const wt = document.getElementById("weaponTable");
   if (!kills.length) wt.innerHTML = `<p class="muted">Belum ada kill untuk filter ini.</p>`;
   else if (state.player) {
-    const byW = countBy(kills, k => k[6]);
+    const byW = countBy(kills, k => k[5]);
     wt.innerHTML = `<table><tr><th>Senjata</th><th class="r">Kill</th><th class="r">Headshot</th></tr>` +
       byW.map(([w, n]) => `<tr><td>${weaponChip(w, null, true)} ${esc(WEAPON_NAMES[w] || w)}</td><td class="r">${n}</td>
-        <td class="r">${pct(kills.filter(k => k[6] === w && k[7]).length, n)}%</td></tr>`).join("") +
-      `<tr><th>Total</th><th class="r">${kills.length}</th><th class="r">${pct(kills.filter(k => k[7]).length, kills.length)}%</th></tr></table>`;
+        <td class="r">${pct(kills.filter(k => k[5] === w && k[6]).length, n)}%</td></tr>`).join("") +
+      `<tr><th>Total</th><th class="r">${kills.length}</th><th class="r">${pct(kills.filter(k => k[6]).length, kills.length)}%</th></tr></table>`;
   } else {
     const byP = countBy(kills, k => k[2]);
     wt.innerHTML = `<table><tr><th>Pemain</th><th class="r">Kill</th><th class="r">HS</th><th>Senjata</th></tr>` +
       byP.map(([pi, n]) => {
         const mine = kills.filter(k => k[2] === pi);
         const [sid, name] = DATA.roster[pi];
-        return `<tr><td>${steamLink(sid, name)}</td><td class="r">${n}</td><td class="r">${pct(mine.filter(k => k[7]).length, n)}%</td>
-          <td style="white-space:normal">${countBy(mine, k => k[6]).slice(0, 5).map(([w, c]) => weaponChip(w, c)).join("")}</td></tr>`;
+        return `<tr><td>${steamLink(sid, name)}</td><td class="r">${n}</td><td class="r">${pct(mine.filter(k => k[6]).length, n)}%</td>
+          <td style="white-space:normal">${countBy(mine, k => k[5]).slice(0, 5).map(([w, c]) => weaponChip(w, c)).join("")}</td></tr>`;
       }).join("") + `</table>`;
   }
 
   const role = state.hitView === "dealt" ? "attacker" : "victim";
   const hits = combatRows(DATA.hits, role);
-  const body = hits.filter(h => HIT_PARTS.some(([k]) => k === h[6]));
+  const body = hits.filter(h => HIT_PARTS.some(([k]) => k === h[5]));
   const other = hits.length - body.length;
-  const share = Object.fromEntries(HIT_PARTS.map(([k]) => [k, body.filter(h => h[6] === k).length]));
+  const share = Object.fromEntries(HIT_PARTS.map(([k]) => [k, body.filter(h => h[5] === k).length]));
   const total = body.length, top = Math.max(1, ...Object.values(share));
-  const who = state.player ? nameOf[state.player] : (state.who === "enemy" ? "musuh" : "semua pemain");
+  const who = whoText();
   const zones = {
     head: `<circle cx="100" cy="40" r="26"/>`, neck: `<rect x="90" y="64" width="20" height="14" rx="3"/>`,
     chest: `<rect x="60" y="78" width="80" height="64" rx="12"/>`, stomach: `<rect x="64" y="142" width="72" height="50" rx="10"/>`,
@@ -574,9 +589,13 @@ function shortPath(line) {
 }
 
 function renderRouteTable() {
-  const rows = DATA.players.filter(p => p.map_name === state.map && (!state.match || p.demo_id === state.match) &&
-    (state.side === "all" || p.side === state.side) && (state.who === "all" || p.is_enemy) &&
-    (!state.player || p.steamid === state.player));
+  // With a player picked: them plus the enemy team of each of their matches. Sisi follows the picked
+  // player, so enemies show in the same rounds (on the other side).
+  const isEnemy = p => state.player && inScope(p.demo_id) && p.team_id !== playerTeam(p.demo_id);
+  const rows = DATA.players.filter(p => p.map_name === state.map && (!state.match || p.demo_id === state.match) && (
+    !state.player ? state.side === "all" || p.side === state.side
+    : p.steamid === state.player ? state.side === "all" || p.side === state.side
+    : isEnemy(p) && (state.side === "all" || p.side !== state.side)));
   const el = document.getElementById("routeTable");
   if (!rows.length) { el.innerHTML = `<p class="muted">Belum ada data untuk filter ini.</p>`; return; }
   const groups = new Map();
@@ -585,17 +604,20 @@ function renderRouteTable() {
     if (!groups.has(k)) groups.set(k, {demo: p.demo_id, sid: p.steamid, name: p.name, team: p.team_id, rounds: {}});
     groups.get(k).rounds[p.round_number] = p;
   });
-  const list = [...groups.values()].sort((a, b) => a.demo.localeCompare(b.demo) || a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
-  const maxRound = Math.max(...rows.map(p => p.round_number));
+  const rank = g => g.sid === state.player ? 0 : 1;
+  const list = [...groups.values()].sort((a, b) => a.demo.localeCompare(b.demo) || rank(a) - rank(b) ||
+    a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
+  const roundCols = [...new Set(rows.map(p => p.round_number))].sort((a, b) => a - b);
   const multiMatch = new Set(list.map(g => g.demo)).size > 1;
   const matchOf = Object.fromEntries(DATA.matches.map(m => [m.demo_id, m]));
   let html = `<table class="routes"><tr><th class="sticky">Pemain</th>${multiMatch ? "<th>Match</th>" : ""}`;
-  for (let r = 1; r <= maxRound; r++) html += `<th class="rnd ${String(r) === state.round ? "sel" : ""}" data-round="${r}">R${r}</th>`;
+  for (const r of roundCols) html += `<th class="rnd ${String(r) === state.round ? "sel" : ""}" data-round="${r}">R${r}</th>`;
   html += "</tr>";
   for (const g of list) {
-    html += `<tr><td class="sticky">${steamLink(g.sid, g.name)}<div class="muted" style="font-size:11px">${esc(g.sid)}</div></td>`;
+    const tag = !state.player ? "" : g.sid === state.player ? ` <span class="rt Mid" style="font-weight:600">dipilih</span>` : ` <span class="rt unknown" style="font-weight:600">musuh</span>`;
+    html += `<tr><td class="sticky">${steamLink(g.sid, g.name)}${tag}<div class="muted" style="font-size:11px">${esc(g.sid)}</div></td>`;
     if (multiMatch) html += `<td class="muted" style="font-size:12px">${esc(matchLabel(matchOf[g.demo]))}</td>`;
-    for (let r = 1; r <= maxRound; r++) {
+    for (const r of roundCols) {
       const p = g.rounds[r];
       const sel = String(r) === state.round ? " sel" : "";
       if (!p) { html += `<td class="cell${sel}"></td>`; continue; }
@@ -631,13 +653,10 @@ function placeCallouts(places, px, py, size) {
 
 function renderPlayerPicker() {
   const sel = document.getElementById("playerSel");
-  const seen = new Map();
-  DATA.players.filter(p => p.map_name === state.map && (state.who === "all" || p.is_enemy))
-    .forEach(p => seen.set(p.steamid, p.name));
-  if (state.player && !seen.has(state.player)) state.player = "";
-  sel.innerHTML = `<option value="">Semua pemain</option>` +
-    [...seen].sort((a, b) => a[1].localeCompare(b[1])).map(([sid, name]) =>
-      `<option value="${esc(sid)}" ${sid === state.player ? "selected" : ""}>${esc(name)} · ${esc(sid)}</option>`).join("");
+  const list = [...demosOf].map(([sid, demos]) => [sid, nameOf[sid], demos.size])
+    .sort((a, b) => b[2] - a[2] || a[1].localeCompare(b[1]));
+  sel.innerHTML = `<option value="">Semua pemain (${list.length})</option>` +
+    list.map(([sid, name, n]) => `<option value="${esc(sid)}" ${sid === state.player ? "selected" : ""}>${esc(name)} · ${esc(sid)} · ${n} match</option>`).join("");
 }
 
 function renderFirstKills() {
@@ -646,27 +665,31 @@ function renderFirstKills() {
   const tWins = rows.filter(r => r.first_kill_side === "T").length;
   document.getElementById("fkSide").innerHTML = `<h3 style="margin-top:0">Siapa dapat kill pertama</h3>` +
     bars([["T dapat duluan", tWins], ["CT dapat duluan", n - tWins]], n) +
-    (n ? `<p class="muted">Rata-rata terjadi di detik ke-${mean(rows.map(r => r.first_kill_seconds)).toFixed(0)}. Di sini musuh = tim T.</p>` : "");
+    (n ? `<p class="muted">Ronde saat ${esc(teamText().toLowerCase())} di sisi T. Rata-rata terjadi di detik ke-${mean(rows.map(r => r.first_kill_seconds)).toFixed(0)}.</p>` : "");
   document.getElementById("fkPlaces").innerHTML = bars(countBy(rows, r => r.first_kill_place || "?").slice(0, 8), n);
+}
+
+// Only maps the picked player has played
+function renderMapSeg() {
+  const maps = scopedMaps();
+  if (!maps.includes(state.map)) { state.map = maps[0]; state.match = ""; state.round = ""; }
+  seg(document.getElementById("mapSeg"), maps.map(m => [m, mapName(m)]), "map");
 }
 
 function render() {
   const rounds = teamRows("T").length + teamRows("CT").length;
   document.getElementById("sampleWarn").innerHTML = rounds < 30
     ? `<div class="warn">Data masih sedikit (${rounds} ronde tim untuk filter ini). Persentase bisa berubah banyak begitu demo bertambah.</div>` : "";
-  renderPlayerPicker(); renderMatchPickers(); renderT(); renderCT(); renderTeams(); renderMap(); renderRouteTable(); renderCombat(); renderFirstKills();
+  renderPlayerPicker(); renderMapSeg(); renderMatchPickers(); renderT(); renderCT(); renderTeams(); renderMap(); renderRouteTable(); renderCombat(); renderFirstKills();
 }
 
 document.getElementById("summary").textContent =
-  `${DATA.summary.demos} demo · ${DATA.summary.rounds} ronde · ${DATA.summary.players} pemain · kamu: ${DATA.me.name}`;
-seg(document.getElementById("mapSeg"), maps.map(m => [m, mapName(m)]), "map");
-seg(document.getElementById("whoSeg"), [["enemy", "Musuh saja"], ["all", "Semua"]], "who");
-seg(document.getElementById("buySeg"), [["all", "Semua"], ["pistol", "Pistol"], ["eco", "Eco"], ["force", "Force"], ["full", "Full"]], "buy");
+  `${DATA.summary.demos} demo · ${DATA.summary.rounds} ronde · ${DATA.summary.players} pemain`;
 seg(document.getElementById("sideSeg"), [["T", "T"], ["CT", "CT"], ["all", "Semua"]], "side", () => { renderMap(); renderRouteTable(); renderCombat(); });
 seg(document.getElementById("hitSeg"), [["dealt", "Tembakan dia"], ["taken", "Dia kena"]], "hitView", renderCombat);
 document.getElementById("matchSel").onchange = e => { state.match = e.target.value; state.round = ""; render(); };
 document.getElementById("roundSel").onchange = e => { state.round = e.target.value; renderMap(); renderRouteTable(); renderCombat(); };
-document.getElementById("playerSel").onchange = e => { state.player = e.target.value; render(); };
+document.getElementById("playerSel").onchange = e => { state.player = e.target.value; state.match = ""; state.round = ""; render(); };
 document.getElementById("calloutChk").onchange = e => { state.callouts = e.target.checked; renderMap(); };
 document.getElementById("tRange").oninput = e => {
   state.t = +e.target.value >= +e.target.max ? Infinity : +e.target.value;

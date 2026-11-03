@@ -2,8 +2,8 @@
 
     python -m src.report.build_report [--me <steamid>] [--output reports/opening_report.html]
 
-"Me" is the player whose matches these are (default: the steamid present in the
-most demos). Everyone on the other team in a demo counts as an enemy.
+The report opens on one player (--me, default: the steamid present in the most
+demos); any player can be picked by Steam ID, and only their matches are shown.
 """
 
 import argparse
@@ -90,8 +90,8 @@ def weapon_key(weapon: str) -> str:
     return w.removesuffix("_off")
 
 
-def combat_rows(parsed: Path, match_index: dict, player_index: dict, enemy: set) -> tuple[list, list]:
-    """Compact hit and kill rows: [match, round, attacker, victim, attacker side, attacker is enemy, ...]."""
+def combat_rows(parsed: Path, match_index: dict, player_index: dict) -> tuple[list, list]:
+    """Compact hit and kill rows: [match, round, attacker, victim, attacker side, ...]."""
     hits, kills = [], []
     for meta_path in sorted(parsed.glob("*/meta.json")):
         demo = meta_path.parent
@@ -107,8 +107,7 @@ def combat_rows(parsed: Path, match_index: dict, player_index: dict, enemy: set)
                 att, vic = str(r.attacker_steamid), str(r.user_steamid)
                 if att not in player_index or vic not in player_index:
                     continue
-                row = [m, int(r.round_number), player_index[att], player_index[vic], r.attacker_side,
-                       int((demo_id, att) in enemy)]
+                row = [m, int(r.round_number), player_index[att], player_index[vic], r.attacker_side]
                 if name == "hits":
                     row += [r.hitgroup, int(r.dmg_health)]
                 else:
@@ -126,20 +125,15 @@ def icon_uris(weapons: set[str], icon_dir: Path) -> dict[str, str]:
     return out
 
 
-def match_list(teams: pd.DataFrame, my_team: pd.Series) -> list[dict]:
-    """One entry per demo with the final score, from your side when you played in it."""
+def match_list(teams: pd.DataFrame) -> list[dict]:
+    """One entry per demo with rounds won per team, so the page can show any player's score."""
     out = []
     for demo_id, g in teams.groupby("demo_id", sort=False):
-        wins = g.groupby("team_id")["won"].sum()
-        mine = my_team.get(demo_id)
-        us = mine if mine in wins.index else wins.index[0]
-        them = next((t for t in wins.index if t != us), None)
         out.append({
             "demo_id": demo_id,
             "map_name": g["map_name"].iloc[0],
             "rounds": int(g["round_number"].max()),
-            "score": [int(wins.get(us, 0)), int(wins.get(them, 0)) if them is not None else 0],
-            "with_me": bool(pd.notna(mine)),
+            "team_wins": {t: int(w) for t, w in g.groupby("team_id")["won"].sum().items()},
         })
     return out
 
@@ -152,23 +146,18 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
     me = me or detect_me(players)
     me_name = players.loc[players["steamid"] == me, "name"].iloc[0] if (players["steamid"] == me).any() else me
 
-    # Demos you're not in have no enemies of yours; they only show under "everyone"
-    my_team = players[players["steamid"] == me].groupby("demo_id")["team_id"].first()
-    for df in (players, teams):
-        mine = df["demo_id"].map(my_team)
-        df["is_enemy"] = (mine.notna() & (df["team_id"] != mine)).astype(int)
     players["buy"] = [buy_label(p, b) for p, b in zip(players["is_pistol"], players["buy_type_code"])]
     teams["buy"] = [buy_label(p, b) for p, b in zip(teams["is_pistol"], teams["buy_type_code"])]
     teams["team_label"] = [n or p for n, p in zip(teams["team_name"], teams["players"])]
 
-    matches = match_list(teams, my_team)
+    matches = match_list(teams)
     match_index = {m["demo_id"]: i for i, m in enumerate(matches)}
 
     # Trajectory dots (every 2 s) for the heatmap and per-round paths
     roster = players.drop_duplicates("steamid")[["steamid", "name"]].reset_index(drop=True)
     player_index = {sid: i for i, sid in enumerate(roster["steamid"])}
     dots, centres, radars, places = [], {}, {}, {}
-    route_of = players.set_index(["demo_id", "round_number", "steamid"])[["route", "side", "is_enemy", "buy"]]
+    route_of = players.set_index(["demo_id", "round_number", "steamid"])[["route", "side"]]
     by_map: dict[str, list] = {}
     for meta_path in sorted(parsed.glob("*/meta.json")):
         meta, _, _, traj = load_parsed(meta_path.parent)
@@ -186,10 +175,8 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
         traj["map_name"] = map_name
         traj["player"] = traj["steamid"].map(player_index)
         traj["match"] = traj["demo_id"].map(match_index)
-        dots.append(traj[["map_name", "side", "route", "is_enemy", "buy", "t_seconds", "X", "Y", "player",
-                          "match", "round_number"]])
-    enemy = set(zip(players.loc[players["is_enemy"] == 1, "demo_id"], players.loc[players["is_enemy"] == 1, "steamid"]))
-    hits, kills = combat_rows(parsed, match_index, player_index, enemy)
+        dots.append(traj[["map_name", "side", "route", "t_seconds", "X", "Y", "player", "match", "round_number"]])
+    hits, kills = combat_rows(parsed, match_index, player_index)
     icon_dir = radar_dir.parent / "icons"
     if not icon_dir.exists():
         try:
@@ -202,11 +189,11 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
     dots_df["X"] = dots_df["X"].round().astype(int)
     dots_df["Y"] = dots_df["Y"].round().astype(int)
 
-    team_cols = ["demo_id", "map_name", "round_number", "side", "team_id", "team_label", "buy", "is_enemy",
+    team_cols = ["demo_id", "map_name", "round_number", "side", "team_id", "team_label", "buy",
                  "strategy", "n_A", "n_B", "n_Mid", "rushers", "rush_site", "plant_site", "won",
                  "first_kill_side", "first_kill_place", "first_kill_seconds", "round_seconds"]
     player_cols = ["demo_id", "map_name", "round_number", "side", "steamid", "name", "team_id", "buy",
-                   "is_enemy", "route", "rush", "site_arrival_seconds", "opening_line"]
+                   "route", "rush", "site_arrival_seconds", "opening_line"]
     return {
         "me": {"steamid": me, "name": me_name},
         "summary": {
@@ -225,7 +212,7 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
         "roster": roster.values.tolist(),
         "hits": hits,
         "kills": kills,
-        "icons": icon_uris({k[6] for k in kills}, icon_dir),
+        "icons": icon_uris({k[5] for k in kills}, icon_dir),
     }
 
 
