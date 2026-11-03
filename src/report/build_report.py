@@ -82,6 +82,24 @@ def callouts(traj: pd.DataFrame) -> list[list]:
     return [[place, round(r.X), round(r.Y)] for place, r in med.iterrows()]
 
 
+def match_list(teams: pd.DataFrame, my_team: pd.Series) -> list[dict]:
+    """One entry per demo with the final score, from your side when you played in it."""
+    out = []
+    for demo_id, g in teams.groupby("demo_id", sort=False):
+        wins = g.groupby("team_id")["won"].sum()
+        mine = my_team.get(demo_id)
+        us = mine if mine in wins.index else wins.index[0]
+        them = next((t for t in wins.index if t != us), None)
+        out.append({
+            "demo_id": demo_id,
+            "map_name": g["map_name"].iloc[0],
+            "rounds": int(g["round_number"].max()),
+            "score": [int(wins.get(us, 0)), int(wins.get(them, 0)) if them is not None else 0],
+            "with_me": bool(pd.notna(mine)),
+        })
+    return out
+
+
 def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path) -> dict:
     players = pd.read_parquet(processed / "players.parquet")
     teams = pd.read_parquet(processed / "teams.parquet")
@@ -99,7 +117,10 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
     teams["buy"] = [buy_label(p, b) for p, b in zip(teams["is_pistol"], teams["buy_type_code"])]
     teams["team_label"] = [n or p for n, p in zip(teams["team_name"], teams["players"])]
 
-    # Trajectory dots (every 2 s) for the movement map, coloured by the player's route
+    matches = match_list(teams, my_team)
+    match_index = {m["demo_id"]: i for i, m in enumerate(matches)}
+
+    # Trajectory dots (every 2 s) for the heatmap and per-round paths
     roster = players.drop_duplicates("steamid")[["steamid", "name"]].reset_index(drop=True)
     player_index = {sid: i for i, sid in enumerate(roster["steamid"])}
     dots, centres, radars, places = [], {}, {}, {}
@@ -120,7 +141,9 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
         traj = traj.join(route_of, on=["demo_id", "round_number", "steamid"], how="inner")
         traj["map_name"] = map_name
         traj["player"] = traj["steamid"].map(player_index)
-        dots.append(traj[["map_name", "side", "route", "is_enemy", "buy", "t_seconds", "X", "Y", "player"]])
+        traj["match"] = traj["demo_id"].map(match_index)
+        dots.append(traj[["map_name", "side", "route", "is_enemy", "buy", "t_seconds", "X", "Y", "player",
+                          "match", "round_number"]])
     dots_df = pd.concat(dots)
     dots_df["X"] = dots_df["X"].round().astype(int)
     dots_df["Y"] = dots_df["Y"].round().astype(int)
@@ -137,6 +160,7 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
             "rounds": int(teams[["demo_id", "round_number"]].drop_duplicates().shape[0]),
             "players": int(players["steamid"].nunique()),
         },
+        "matches": matches,
         "teams": records(teams[team_cols]),
         "players": records(players[player_cols]),
         "dots": dots_df.values.tolist(),
