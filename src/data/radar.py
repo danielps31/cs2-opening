@@ -1,7 +1,8 @@
 """
-Extract radar images and overview coordinates from your CS2 install.
+Extract radar images, overview coordinates and weapon icons from your CS2 install.
 
     python -m src.data.radar [--maps de_dust2 de_inferno ...]
+    python -m src.data.radar --icons
 
 Reads panorama/images/overheadmaps/<map>_radar_psd.vtex_c and
 resource/overviews/<map>.txt from pak01_dir.vpk, writes data/radar/<map>.png
@@ -116,12 +117,34 @@ def extract(maps: list[str] | None, out_dir: Path) -> dict:
     return overviews
 
 
+def extract_icons(out_dir: Path) -> int:
+    """Weapon/equipment icons (panorama/images/icons/equipment/*.vsvg_c) as plain .svg files."""
+    pak = vpk.open(str(find_vpk()))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for name in pak:
+        m = re.match(r"panorama/images/icons/equipment/(\w+)\.vsvg_c$", name)
+        if not m:
+            continue
+        data = pak[name].read()
+        start, end = data.find(b"<svg"), data.rfind(b"</svg>")
+        if start < 0 or end < 0:
+            continue
+        (out_dir / f"{m.group(1)}.svg").write_bytes(data[start:end + len(b"</svg>")])
+        count += 1
+    return count
+
+
 def main():
     ap = argparse.ArgumentParser(description="Extract CS2 radar images from the game files")
     ap.add_argument("--maps", nargs="*", help="e.g. de_dust2 de_mirage (default: every de_ map)")
     ap.add_argument("--output", type=Path, default=Path("data/radar"))
+    ap.add_argument("--icons", action="store_true", help="extract weapon icons to data/icons instead")
     args = ap.parse_args()
-    extract(args.maps, args.output)
+    if args.icons:
+        print(f"{extract_icons(Path('data/icons'))} icons -> data/icons")
+    else:
+        extract(args.maps, args.output)
 
 
 if __name__ == "__main__":

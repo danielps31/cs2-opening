@@ -82,6 +82,50 @@ def callouts(traj: pd.DataFrame) -> list[list]:
     return [[place, round(r.X), round(r.Y)] for place, r in med.iterrows()]
 
 
+def weapon_key(weapon: str) -> str:
+    """Kill-feed weapon name -> icon name."""
+    w = str(weapon)
+    if w.startswith(("knife", "bayonet")):
+        return "knife"
+    return w.removesuffix("_off")
+
+
+def combat_rows(parsed: Path, match_index: dict, player_index: dict, enemy: set) -> tuple[list, list]:
+    """Compact hit and kill rows: [match, round, attacker, victim, attacker side, attacker is enemy, ...]."""
+    hits, kills = [], []
+    for meta_path in sorted(parsed.glob("*/meta.json")):
+        demo = meta_path.parent
+        if not (demo / "hits.parquet").exists():
+            continue
+        demo_id = json.loads(meta_path.read_text())["demo_id"]
+        m = match_index.get(demo_id)
+        if m is None:
+            continue
+        for name, out, extra in (("hits", hits, ["hitgroup", "dmg_health"]), ("kills", kills, ["weapon", "headshot"])):
+            df = pd.read_parquet(demo / f"{name}.parquet")
+            for r in df.itertuples(index=False):
+                att, vic = str(r.attacker_steamid), str(r.user_steamid)
+                if att not in player_index or vic not in player_index:
+                    continue
+                row = [m, int(r.round_number), player_index[att], player_index[vic], r.attacker_side,
+                       int((demo_id, att) in enemy)]
+                if name == "hits":
+                    row += [r.hitgroup, int(r.dmg_health)]
+                else:
+                    row += [weapon_key(r.weapon), int(bool(r.headshot))]
+                out.append(row)
+    return hits, kills
+
+
+def icon_uris(weapons: set[str], icon_dir: Path) -> dict[str, str]:
+    out = {}
+    for w in weapons:
+        svg = icon_dir / f"{w}.svg"
+        if svg.exists():
+            out[w] = "data:image/svg+xml;base64," + base64.b64encode(svg.read_bytes()).decode()
+    return out
+
+
 def match_list(teams: pd.DataFrame, my_team: pd.Series) -> list[dict]:
     """One entry per demo with the final score, from your side when you played in it."""
     out = []
@@ -144,6 +188,16 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
         traj["match"] = traj["demo_id"].map(match_index)
         dots.append(traj[["map_name", "side", "route", "is_enemy", "buy", "t_seconds", "X", "Y", "player",
                           "match", "round_number"]])
+    enemy = set(zip(players.loc[players["is_enemy"] == 1, "demo_id"], players.loc[players["is_enemy"] == 1, "steamid"]))
+    hits, kills = combat_rows(parsed, match_index, player_index, enemy)
+    icon_dir = radar_dir.parent / "icons"
+    if not icon_dir.exists():
+        try:
+            from src.data.radar import extract_icons
+            extract_icons(icon_dir)
+        except Exception as e:
+            print(f"No weapon icons ({e})")
+
     dots_df = pd.concat(dots)
     dots_df["X"] = dots_df["X"].round().astype(int)
     dots_df["Y"] = dots_df["Y"].round().astype(int)
@@ -169,6 +223,9 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
         "radars": radars,
         "places": places,
         "roster": roster.values.tolist(),
+        "hits": hits,
+        "kills": kills,
+        "icons": icon_uris({k[6] for k in kills}, icon_dir),
     }
 
 

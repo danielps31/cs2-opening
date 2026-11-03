@@ -68,6 +68,13 @@ table.routes th.rnd { cursor: pointer; text-align: center; }
 table.routes th.rnd:hover { color: var(--fg); }
 table.routes .sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 table.routes td.sticky, table.routes th.sticky { position: sticky; left: 0; background: var(--card); z-index: 1; }
+.wicon { display: inline-flex; align-items: center; gap: 4px; background: #23272e; color: #e8eaee; border-radius: 6px; padding: 2px 6px; margin: 2px 4px 2px 0; font-size: 12px; white-space: nowrap; }
+.wicon img { height: 16px; width: auto; display: block; }
+.wicon.big img { height: 22px; }
+.body-wrap { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+.body-wrap svg { width: 200px; max-width: 45%; height: auto; flex: none; }
+.body-wrap .body-list { flex: 1; min-width: 200px; }
+.body-wrap .bar-row { grid-template-columns: 92px 1fr 64px; }
 .legend i.heat-scale { display: inline-block; width: 120px; height: 8px; border-radius: 4px; vertical-align: middle; margin: 0 4px;
   background: linear-gradient(90deg, #2b6cff, #22c55e, #facc15, #ef4444); }
 input[type=range] { width: 200px; vertical-align: middle; }
@@ -103,6 +110,13 @@ input[type=range] { width: 200px; vertical-align: middle; }
     <div class="card" style="margin-top:16px">
       <h3 style="margin-top:0">Rute per ronde <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· klik nomor ronde untuk melihatnya di peta</span></h3>
       <div class="table-wrap" id="routeTable"></div>
+    </div>
+    <div class="grid" style="margin-top:16px">
+      <div class="card"><h3 style="margin-top:0">Kill per senjata <span class="muted" id="combatScope" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h3>
+        <div class="table-wrap" id="weaponTable"></div></div>
+      <div class="card"><h3 style="margin-top:0">Bagian badan yang kena</h3>
+        <div class="seg" id="hitSeg"></div>
+        <div id="bodyTarget"></div></div>
     </div>
   </div>
 
@@ -157,7 +171,7 @@ const maps = [...new Set(DATA.teams.map(t => t.map_name))]
   .sort((a, b) => DATA.teams.filter(t => t.map_name === b).length - DATA.teams.filter(t => t.map_name === a).length);
 // Deep link: #<map>[/<match number on that map>[/<round>]], e.g. #de_anubis/2/5
 const [hashMap, hashMatch, hashRound] = decodeURIComponent(location.hash.slice(1)).split("/");
-const state = {map: maps.includes(hashMap) ? hashMap : maps[0], who: "enemy", buy: "all", side: "T", t: Infinity, player: "", callouts: true, match: "", round: ""};
+const state = {map: maps.includes(hashMap) ? hashMap : maps[0], who: "enemy", buy: "all", side: "T", t: Infinity, player: "", callouts: true, match: "", round: "", hitView: "dealt"};
 if (hashMatch) state.match = (DATA.matches.filter(m => m.map_name === state.map)[+hashMatch - 1] || {}).demo_id || "";
 if (hashRound) state.round = hashRound;
 const PLAYER_COLORS = ["#ff6b6b", "#4dabf7", "#ffd43b", "#69db7c", "#da77f2", "#ff922b", "#3bc9db", "#f783ac", "#a9e34b", "#ced4da"];
@@ -463,6 +477,94 @@ function renderMatchPickers() {
   document.getElementById("roundSel").innerHTML = opts;
 }
 
+const WEAPON_NAMES = {ak47: "AK-47", m4a1: "M4A4", m4a1_silencer: "M4A1-S", awp: "AWP", galilar: "Galil AR", famas: "FAMAS",
+  sg556: "SG 553", aug: "AUG", ssg08: "SSG 08", scar20: "SCAR-20", g3sg1: "G3SG1", mac10: "MAC-10", mp9: "MP9", mp7: "MP7",
+  mp5sd: "MP5-SD", ump45: "UMP-45", p90: "P90", bizon: "PP-Bizon", glock: "Glock-18", usp_silencer: "USP-S", hkp2000: "P2000",
+  p250: "P250", fiveseven: "Five-SeveN", tec9: "Tec-9", cz75a: "CZ75-Auto", deagle: "Desert Eagle", revolver: "R8", elite: "Dual Berettas",
+  nova: "Nova", xm1014: "XM1014", mag7: "MAG-7", sawedoff: "Sawed-Off", negev: "Negev", m249: "M249", knife: "Pisau", taser: "Zeus x27",
+  hegrenade: "HE Grenade", inferno: "Molotov/Incendiary", molotov: "Molotov", incgrenade: "Incendiary", flashbang: "Flashbang",
+  smokegrenade: "Smoke", decoy: "Decoy"};
+const HIT_PARTS = [["head", "Kepala"], ["neck", "Leher"], ["chest", "Dada"], ["stomach", "Perut"],
+  ["left_arm", "Tangan kiri"], ["right_arm", "Tangan kanan"], ["left_leg", "Kaki kiri"], ["right_leg", "Kaki kanan"]];
+const weaponChip = (w, n, big) => `<span class="wicon${big ? " big" : ""}" title="${esc(WEAPON_NAMES[w] || w)}">` +
+  (DATA.icons[w] ? `<img src="${DATA.icons[w]}" alt="${esc(WEAPON_NAMES[w] || w)}">` : esc(WEAPON_NAMES[w] || w)) +
+  (n != null ? `<b>${n}</b>` : "") + `</span>`;
+
+// Hit/kill rows: [match, round, attacker, victim, attacker side, attacker is enemy, ...]
+function combatRows(rows, role) {
+  const matchIdx = state.match ? DATA.matches.findIndex(m => m.demo_id === state.match) : -1;
+  const playerIdx = state.player ? DATA.roster.findIndex(r => r[0] === state.player) : -1;
+  return rows.filter(r => {
+    const m = DATA.matches[r[0]];
+    if (m.map_name !== state.map || (matchIdx >= 0 && r[0] !== matchIdx)) return false;
+    if (state.round && r[1] !== +state.round) return false;
+    // role = whose side of the event we look at: the attacker (dealt) or the victim (taken)
+    const sideOk = state.side === "all" || (role === "attacker" ? r[4] === state.side : r[4] !== state.side);
+    const enemy = role === "attacker" ? r[5] === 1 : m.with_me && r[5] === 0;
+    const who = role === "attacker" ? r[2] : r[3];
+    return sideOk && (state.who === "all" || enemy) && (playerIdx < 0 || who === playerIdx);
+  });
+}
+
+function renderCombat() {
+  const scope = [state.match ? "match ini" : "semua match", state.round ? `ronde ${state.round}` : "semua ronde",
+    state.player ? nameOf[state.player] : (state.who === "enemy" ? "musuh" : "semua pemain")];
+  document.getElementById("combatScope").textContent = "· " + scope.join(" · ");
+
+  const kills = combatRows(DATA.kills, "attacker");
+  const wt = document.getElementById("weaponTable");
+  if (!kills.length) wt.innerHTML = `<p class="muted">Belum ada kill untuk filter ini.</p>`;
+  else if (state.player) {
+    const byW = countBy(kills, k => k[6]);
+    wt.innerHTML = `<table><tr><th>Senjata</th><th class="r">Kill</th><th class="r">Headshot</th></tr>` +
+      byW.map(([w, n]) => `<tr><td>${weaponChip(w, null, true)} ${esc(WEAPON_NAMES[w] || w)}</td><td class="r">${n}</td>
+        <td class="r">${pct(kills.filter(k => k[6] === w && k[7]).length, n)}%</td></tr>`).join("") +
+      `<tr><th>Total</th><th class="r">${kills.length}</th><th class="r">${pct(kills.filter(k => k[7]).length, kills.length)}%</th></tr></table>`;
+  } else {
+    const byP = countBy(kills, k => k[2]);
+    wt.innerHTML = `<table><tr><th>Pemain</th><th class="r">Kill</th><th class="r">HS</th><th>Senjata</th></tr>` +
+      byP.map(([pi, n]) => {
+        const mine = kills.filter(k => k[2] === pi);
+        const [sid, name] = DATA.roster[pi];
+        return `<tr><td>${steamLink(sid, name)}</td><td class="r">${n}</td><td class="r">${pct(mine.filter(k => k[7]).length, n)}%</td>
+          <td style="white-space:normal">${countBy(mine, k => k[6]).slice(0, 5).map(([w, c]) => weaponChip(w, c)).join("")}</td></tr>`;
+      }).join("") + `</table>`;
+  }
+
+  const role = state.hitView === "dealt" ? "attacker" : "victim";
+  const hits = combatRows(DATA.hits, role);
+  const body = hits.filter(h => HIT_PARTS.some(([k]) => k === h[6]));
+  const other = hits.length - body.length;
+  const share = Object.fromEntries(HIT_PARTS.map(([k]) => [k, body.filter(h => h[6] === k).length]));
+  const total = body.length, top = Math.max(1, ...Object.values(share));
+  const who = state.player ? nameOf[state.player] : (state.who === "enemy" ? "musuh" : "semua pemain");
+  const zones = {
+    head: `<circle cx="100" cy="40" r="26"/>`, neck: `<rect x="90" y="64" width="20" height="14" rx="3"/>`,
+    chest: `<rect x="60" y="78" width="80" height="64" rx="12"/>`, stomach: `<rect x="64" y="142" width="72" height="50" rx="10"/>`,
+    right_arm: `<rect x="30" y="82" width="26" height="120" rx="12"/>`, left_arm: `<rect x="144" y="82" width="26" height="120" rx="12"/>`,
+    right_leg: `<rect x="66" y="196" width="32" height="162" rx="12"/>`, left_leg: `<rect x="102" y="196" width="32" height="162" rx="12"/>`,
+  };
+  const centre = {head: [100, 40], neck: [100, 71], chest: [100, 108], stomach: [100, 166], right_arm: [43, 140], left_arm: [157, 140], right_leg: [82, 270], left_leg: [118, 270]};
+  let svg = "";
+  for (const [k] of HIT_PARTS) {
+    const f = share[k] / top;
+    svg += `<g fill="#2f343c" stroke="#4a505a" stroke-width="1.5">${zones[k]}</g>`;
+    if (share[k]) svg += `<g fill="#ef4444" fill-opacity="${(0.15 + 0.6 * f).toFixed(2)}" stroke="none">${zones[k]}</g>`;
+  }
+  for (const [k] of HIT_PARTS) {
+    if (!share[k]) continue;
+    const [x, y] = centre[k], f = share[k] / top;
+    svg += `<circle cx="${x}" cy="${y}" r="${(3 + 9 * f).toFixed(1)}" fill="#ff2d2d" stroke="#fff" stroke-width="1.5"/>`;
+    if (k !== "neck") svg += `<text x="${x}" y="${y + (k === "head" ? 22 : 26)}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" paint-order="stroke" stroke="#000" stroke-width="3">${pct(share[k], total)}%</text>`;
+  }
+  const caption = state.hitView === "dealt" ? `Bagian badan lawan yang dikenai ${esc(who)}` : `Bagian badan ${esc(who)} yang kena tembak`;
+  document.getElementById("bodyTarget").innerHTML = total ? `<div class="body-wrap">
+      <svg viewBox="0 0 200 370" role="img" aria-label="${caption}">${svg}</svg>
+      <div class="body-list"><p class="muted" style="margin:0 0 8px">${caption} · ${total} hit${other ? ` · +${other} dari granat/api` : ""}</p>
+        ${bars(HIT_PARTS.map(([k, label]) => [label, share[k]]).filter(([, n]) => n).sort((a, b) => b[1] - a[1]), total)}</div>
+    </div>` : `<p class="muted">Belum ada hit untuk filter ini.</p>`;
+}
+
 // Rounds as columns, one row per player per match: destination + the places on the way
 function shortPath(line) {
   const steps = (line || "").split(" > ").filter(p => p && p !== "TSpawn" && p !== "CTSpawn")
@@ -506,7 +608,7 @@ function renderRouteTable() {
   el.innerHTML = html + `</table><p class="muted" style="font-size:12px;margin:8px 0 0">T = tujuan pertama dalam 60 detik, CT = posisi di detik ke-20. ⚡ = rush (sampai site ≤20 detik). Baris terakhir tiap sel = tipe buy ronde itu.</p>`;
   el.querySelectorAll("th.rnd").forEach(th => th.onclick = () => {
     state.round = state.round === th.dataset.round ? "" : th.dataset.round;
-    renderMatchPickers(); renderMap(); renderRouteTable();
+    renderMatchPickers(); renderMap(); renderRouteTable(); renderCombat();
   });
 }
 
@@ -552,7 +654,7 @@ function render() {
   const rounds = teamRows("T").length + teamRows("CT").length;
   document.getElementById("sampleWarn").innerHTML = rounds < 30
     ? `<div class="warn">Data masih sedikit (${rounds} ronde tim untuk filter ini). Persentase bisa berubah banyak begitu demo bertambah.</div>` : "";
-  renderPlayerPicker(); renderMatchPickers(); renderT(); renderCT(); renderTeams(); renderMap(); renderRouteTable(); renderFirstKills();
+  renderPlayerPicker(); renderMatchPickers(); renderT(); renderCT(); renderTeams(); renderMap(); renderRouteTable(); renderCombat(); renderFirstKills();
 }
 
 document.getElementById("summary").textContent =
@@ -560,9 +662,10 @@ document.getElementById("summary").textContent =
 seg(document.getElementById("mapSeg"), maps.map(m => [m, mapName(m)]), "map");
 seg(document.getElementById("whoSeg"), [["enemy", "Musuh saja"], ["all", "Semua"]], "who");
 seg(document.getElementById("buySeg"), [["all", "Semua"], ["pistol", "Pistol"], ["eco", "Eco"], ["force", "Force"], ["full", "Full"]], "buy");
-seg(document.getElementById("sideSeg"), [["T", "T"], ["CT", "CT"], ["all", "Semua"]], "side", () => { renderMap(); renderRouteTable(); });
+seg(document.getElementById("sideSeg"), [["T", "T"], ["CT", "CT"], ["all", "Semua"]], "side", () => { renderMap(); renderRouteTable(); renderCombat(); });
+seg(document.getElementById("hitSeg"), [["dealt", "Tembakan dia"], ["taken", "Dia kena"]], "hitView", renderCombat);
 document.getElementById("matchSel").onchange = e => { state.match = e.target.value; state.round = ""; render(); };
-document.getElementById("roundSel").onchange = e => { state.round = e.target.value; renderMap(); renderRouteTable(); };
+document.getElementById("roundSel").onchange = e => { state.round = e.target.value; renderMap(); renderRouteTable(); renderCombat(); };
 document.getElementById("playerSel").onchange = e => { state.player = e.target.value; render(); };
 document.getElementById("calloutChk").onchange = e => { state.callouts = e.target.checked; renderMap(); };
 document.getElementById("tRange").oninput = e => {

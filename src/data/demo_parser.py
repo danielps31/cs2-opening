@@ -6,9 +6,11 @@ For every round it captures, at the moment freeze time ends:
   - players:    per-player snapshot (side, X/Y, money, equip value, place)
 and after freeze end, sampled once per second until the round ends:
   - trajectory: per-player X/Y/place/is_alive at t = 1..N seconds
-plus per round the bomb plant (site, time) and the opening kill.
+plus per round the bomb plant (site, time) and the opening kill, and for the whole match:
+  - hits:  every damage event (attacker, victim, weapon, body part, damage)
+  - kills: every kill (attacker, victim, weapon, headshot)
 
-Output per demo: data/parsed/<demo_id>/{rounds,players,trajectory}.parquet + meta.json
+Output per demo: data/parsed/<demo_id>/{rounds,players,trajectory,hits,kills}.parquet + meta.json
 """
 
 import argparse
@@ -27,6 +29,8 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_FIELDS = ["X", "Y", "team_num", "current_equip_value", "balance", "last_place_name", "team_clan_name"]
 TRAJECTORY_FIELDS = ["X", "Y", "last_place_name", "is_alive"]
 TEAM_SIDES = {2: "T", 3: "CT"}
+# Bumped when the parsed output changes, so older parses get redone
+PARSE_VERSION = 2
 
 
 def place_site(place) -> str | None:
@@ -53,12 +57,13 @@ class ParsedDemo:
     rounds: pd.DataFrame
     players: pd.DataFrame
     trajectory: pd.DataFrame
+    hits: pd.DataFrame
+    kills: pd.DataFrame
 
     def save(self, out_dir: Path) -> Path:
         out_dir.mkdir(parents=True, exist_ok=True)
-        self.rounds.to_parquet(out_dir / "rounds.parquet", index=False)
-        self.players.to_parquet(out_dir / "players.parquet", index=False)
-        self.trajectory.to_parquet(out_dir / "trajectory.parquet", index=False)
+        for name in ("rounds", "players", "trajectory", "hits", "kills"):
+            getattr(self, name).to_parquet(out_dir / f"{name}.parquet", index=False)
         (out_dir / "meta.json").write_text(json.dumps(self.meta, indent=2))
         return out_dir
 
@@ -177,12 +182,34 @@ class CS2DemoParser:
         df = df.merge(samples, on="tick")
         return df[["round_number", "t_seconds", "steamid", "X", "Y", "last_place_name", "is_alive"]]
 
+    def _combat_events(self, event: str, rounds: pd.DataFrame, extra: list[str]) -> pd.DataFrame:
+        """Damage/kill events between enemies during live rounds."""
+        ev = self.parser.parse_event(event, player=["team_num"])
+        cols =["round_number", "t_seconds", "attacker_steamid", "user_steamid", "attacker_side"] + extra
+        if ev.empty:
+            return pd.DataFrame(columns=cols)
+        ev = ev[ev["attacker_steamid"].notna() & (ev["attacker_steamid"] != ev["user_steamid"]) &
+                (ev["attacker_team_num"] != ev["user_team_num"])]
+        ev = self._round_of(ev, rounds)
+        ev["attacker_side"] = ev["attacker_team_num"].map(TEAM_SIDES)
+        ev["round_number"] = ev["round_number"].astype(int)
+        return ev[cols]
+
+    def parse_hits(self, rounds: pd.DataFrame) -> pd.DataFrame:
+        return self._combat_events("player_hurt", rounds, ["weapon", "hitgroup", "dmg_health"])
+
+    def parse_kills(self, rounds: pd.DataFrame) -> pd.DataFrame:
+        return self._combat_events("player_death", rounds, ["weapon", "headshot"])
+
     def parse(self) -> ParsedDemo:
         header = self.parser.parse_header()
         rounds = self.parse_rounds()
         players = self.parse_players(rounds)
         trajectory = self.parse_trajectory(rounds)
+        hits = self.parse_hits(rounds)
+        kills = self.parse_kills(rounds)
         meta = {
+            "version": PARSE_VERSION,
             "demo_id": self.demo_id,
             "source_file": str(self.demo_path),
             "map_name": header.get("map_name", "unknown"),
@@ -191,11 +218,11 @@ class CS2DemoParser:
         }
         logger.info("%s: %s, %d rounds, %d player-rounds",
                     self.demo_id, meta["map_name"], len(rounds), len(players))
-        return ParsedDemo(meta, rounds, players, trajectory)
+        return ParsedDemo(meta, rounds, players, trajectory, hits, kills)
 
 
 def parse_demo_directory(demo_dir: str | Path, output_dir: str | Path, overwrite: bool = False) -> list[Path]:
-    """Parse every .dem in demo_dir. Already-parsed demos are skipped unless overwrite."""
+    """Parse every .dem in demo_dir. Demos already parsed by this version are skipped unless overwrite."""
     demo_dir, output_dir = Path(demo_dir), Path(output_dir)
     dem_files = sorted(demo_dir.glob("*.dem"))
     logger.info("Found %d demo files in %s", len(dem_files), demo_dir)
@@ -203,7 +230,7 @@ def parse_demo_directory(demo_dir: str | Path, output_dir: str | Path, overwrite
     outputs = []
     for dem_file in dem_files:
         out = output_dir / dem_file.stem
-        if (out / "meta.json").exists() and not overwrite:
+        if not overwrite and (out / "meta.json").exists() and                 json.loads((out / "meta.json").read_text()).get("version") == PARSE_VERSION:
             logger.info("Skip (already parsed): %s", dem_file.name)
             outputs.append(out)
             continue
