@@ -68,9 +68,13 @@ table.routes th.rnd { cursor: pointer; text-align: center; }
 table.routes th.rnd:hover { color: var(--fg); }
 table.routes td.team-head { padding: 10px 8px 6px; font-weight: 700; border-bottom: 2px solid var(--border); }
 table.routes td.team-head > span { position: sticky; left: 8px; }
-table.routes td.team-head.ours { color: var(--mid); } table.routes td.team-head.enemy { color: #ef4444; }
+.team-title { margin: 16px 0 6px; font-size: 14px; } .team-title:first-child { margin-top: 0; }
+.team-title.ours { color: var(--mid); } .team-title.enemy { color: #ef4444; }
 table.routes .sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 table.routes td.sticky, table.routes th.sticky { position: sticky; left: 0; background: var(--card); z-index: 1; }
+table.routes { table-layout: fixed; width: max-content; }
+table.routes td.sticky, table.routes th.sticky { width: 190px; min-width: 190px; max-width: 190px; white-space: normal; }
+table.routes td.cell, table.routes th.rnd { width: 120px; }
 .wicon { display: inline-flex; align-items: center; gap: 4px; background: #23272e; color: #e8eaee; border-radius: 6px; padding: 2px 6px; margin: 2px 4px 2px 0; font-size: 12px; white-space: nowrap; }
 .wicon img { height: 16px; width: auto; display: block; }
 .wicon.big img { height: 22px; }
@@ -110,7 +114,7 @@ input[type=range] { width: 200px; vertical-align: middle; }
     </div>
     <div class="card" style="margin-top:16px">
       <h3 style="margin-top:0">Rute per ronde <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· klik nomor ronde untuk melihatnya di peta</span></h3>
-      <div class="table-wrap" id="routeTable"></div>
+      <div id="routeTable"></div>
     </div>
     <div class="grid" style="margin-top:16px">
       <div class="card"><h3 style="margin-top:0">Kill per senjata <span class="muted" id="combatScope" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h3>
@@ -618,30 +622,40 @@ function renderRouteTable() {
     const named = DATA.teams.find(t => t.demo_id === g.demo && t.team_id === g.team);
     return `Tim ${named && named.team_label ? named.team_label.split(", ")[0] + " dkk." : ""}`;
   };
-  let html = `<table class="routes"><tr><th class="sticky">Pemain</th>`;
-  for (const r of roundCols) html += `<th class="rnd ${String(r) === state.round ? "sel" : ""}" data-round="${r}">R${r}</th>`;
-  html += "</tr>";
-  let block = "";
-  for (const g of list) {
-    if (g.demo + g.team !== block) {
-      block = g.demo + g.team;
-      const enemyBlock = state.player && g.team !== playerTeam(g.demo);
-      html += `<tr><td class="team-head ${enemyBlock ? "enemy" : "ours"}" colspan="${roundCols.length + 1}"><span>${esc(teamTitle(g))}` +
-        `${multiMatch ? ` <span class="muted">· ${esc(matchLabel(matchOf[g.demo]))}</span>` : ""}</span></td></tr>`;
-    }
-    const tag = g.sid === state.player ? ` <span class="rt Mid" style="font-weight:600">dipilih</span>` : "";
-    html += `<tr><td class="sticky">${steamLink(g.sid, g.name)}${tag}<div class="muted" style="font-size:11px">${esc(g.sid)}</div></td>`;
-    for (const r of roundCols) {
-      const p = g.rounds[r];
-      const sel = String(r) === state.round ? " sel" : "";
-      if (!p) { html += `<td class="cell${sel}"></td>`; continue; }
-      const route = p.route === "unknown" ? "?" : p.route;
-      html += `<td class="cell${sel}"><span class="muted">${p.side}</span> <span class="rt ${esc(p.route)}">${esc(route)}</span>${p.rush ? " ⚡" : ""}` +
-        `<small>${esc(shortPath(p.opening_line)) || "-"}</small><small>${esc(p.buy)}</small></td>`;
-    }
+  // One table per side of the fight; inside it, a header row per match (and per team when no one is picked)
+  const table = subset => {
+    let html = `<div class="table-wrap"><table class="routes"><tr><th class="sticky">Pemain</th>`;
+    for (const r of roundCols) html += `<th class="rnd ${String(r) === state.round ? "sel" : ""}" data-round="${r}">R${r}</th>`;
     html += "</tr>";
-  }
-  el.innerHTML = html + `</table><p class="muted" style="font-size:12px;margin:8px 0 0">T = tujuan pertama dalam 60 detik, CT = posisi di detik ke-20. ⚡ = rush (sampai site ≤20 detik). Baris terakhir tiap sel = tipe buy ronde itu.</p>`;
+    let block = "";
+    for (const g of subset) {
+      const key = state.player ? g.demo : g.demo + g.team;
+      if (key !== block && (multiMatch || !state.player)) {
+        const title = [state.player ? "" : teamTitle(g), multiMatch ? matchLabel(matchOf[g.demo]) : ""].filter(Boolean).join(" · ");
+        html += `<tr><td class="team-head" colspan="${roundCols.length + 1}"><span>${esc(title)}</span></td></tr>`;
+      }
+      block = key;
+      const tag = g.sid === state.player ? ` <span class="rt Mid" style="font-weight:600">dipilih</span>` : "";
+      html += `<tr><td class="sticky">${steamLink(g.sid, g.name)}${tag}<div class="muted" style="font-size:11px">${esc(g.sid)}</div></td>`;
+      for (const r of roundCols) {
+        const p = g.rounds[r];
+        const sel = String(r) === state.round ? " sel" : "";
+        if (!p) { html += `<td class="cell${sel}"></td>`; continue; }
+        const route = p.route === "unknown" ? "?" : p.route;
+        html += `<td class="cell${sel}"><span class="muted">${p.side}</span> <span class="rt ${esc(p.route)}">${esc(route)}</span>${p.rush ? " ⚡" : ""}` +
+          `<small>${esc(shortPath(p.opening_line)) || "-"}</small><small>${esc(p.buy)}</small></td>`;
+      }
+      html += "</tr>";
+    }
+    return html + "</table></div>";
+  };
+  const ours = list.filter(g => !state.player || g.team === playerTeam(g.demo));
+  const theirs = list.filter(g => state.player && g.team !== playerTeam(g.demo));
+  let html = state.player
+    ? `<h4 class="team-title ours">Tim kamu · ${esc(nameOf[state.player])}</h4>${ours.length ? table(ours) : `<p class="muted">Tidak ada ronde untuk filter ini.</p>`}` +
+      `<h4 class="team-title enemy">Tim musuh</h4>${theirs.length ? table(theirs) : `<p class="muted">Tidak ada ronde untuk filter ini.</p>`}`
+    : table(ours);
+  el.innerHTML = html + `<p class="muted" style="font-size:12px;margin:8px 0 0">T = tujuan pertama dalam 60 detik, CT = posisi di detik ke-20. ⚡ = rush (sampai site ≤20 detik). Baris terakhir tiap sel = tipe buy ronde itu.</p>`;
   el.querySelectorAll("th.rnd").forEach(th => th.onclick = () => {
     state.round = state.round === th.dataset.round ? "" : th.dataset.round;
     renderMatchPickers(); renderMap(); renderRouteTable(); renderCombat();
