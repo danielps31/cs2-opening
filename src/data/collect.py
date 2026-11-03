@@ -22,6 +22,18 @@ import httpx
 logger = logging.getLogger(__name__)
 
 CS2_REPLAYS = Path("steamapps/common/Counter-Strike Global Offensive/game/csgo/replays")
+MATCH_ID = re.compile(r"(\d{15,})_(\d+)")
+
+
+def demo_key(name: str) -> str:
+    """Same match, same key: 'match730_<id>_<token>_154.dem' (CS2) and '<id>_<token>.dem.bz2' (Valve CDN)."""
+    m = MATCH_ID.search(name)
+    return f"{int(m.group(1))}_{m.group(2)}" if m else name
+
+
+def already_have(dest_dir: Path, name: str) -> bool:
+    key = demo_key(name)
+    return any(demo_key(f.name) == key for f in dest_dir.glob("*.dem"))
 
 
 def steam_libraries() -> list[Path]:
@@ -48,12 +60,12 @@ def import_file(src: Path, dest_dir: Path) -> Path | None:
     name = src.name
     if name.endswith(".dem"):
         dest = dest_dir / name
-        if not dest.exists():
+        if not dest.exists() and not already_have(dest_dir, name):
             shutil.copy2(src, dest)
         return dest
     if name.endswith(".dem.bz2"):
         dest = dest_dir / name[:-4]
-        if not dest.exists():
+        if not dest.exists() and not already_have(dest_dir, name):
             with bz2.open(src) as fin, open(dest, "wb") as fout:
                 shutil.copyfileobj(fin, fout)
         return dest
@@ -86,9 +98,14 @@ def download_urls(urls: list[str], dest_dir: Path) -> int:
             if not tmp.name.endswith((".dem", ".dem.bz2")):
                 logger.warning("Skip (not a .dem/.dem.bz2 link): %s", url)
                 continue
-            if not tmp.exists() and not (dest_dir / tmp.name.removesuffix(".bz2")).exists():
+            if already_have(dest_dir, tmp.name):
+                continue
+            if not tmp.exists():
                 logger.info("Downloading %s", url)
                 with client.stream("GET", url) as resp:
+                    if resp.status_code == 404:
+                        logger.warning("Expired on Valve's servers (404): %s", url)
+                        continue
                     resp.raise_for_status()
                     with open(tmp, "wb") as f:
                         for chunk in resp.iter_bytes(1 << 16):

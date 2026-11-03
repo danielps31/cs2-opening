@@ -21,10 +21,28 @@ enemy CT setups, and each player's and team's habits.
 
 ## Where the data comes from
 
+**Your Steam account (recommended):**
+
+```bash
+python -m src.pipeline
+```
+
+First run shows a QR code: scan it in the Steam Mobile app (no password is typed or stored; the login
+token is kept in `data/steam_refresh_token.txt`, delete it or run
+`node tools/steam_gc/fetch_demo_urls.js --logout` to log out). The script asks the CS2 Game Coordinator
+for your recent matches (the same list as Watch > Your Matches, max 8), downloads their demos from
+Valve, also imports your CS2 replays folder, then builds the report with you as "me".
+Valve keeps replays only for a limited time, so run it regularly to build up history.
+Close CS2 while it runs (the account can only be in CS2 once).
+
+Older matches: fill `data/sharecodes.txt` with `python -m src.data.steam_api --known-code CSGO-...`
+(needs `STEAM_API_KEY`, `STEAM_ID`, `STEAM_AUTH_CODE` in `.env`); the next `src.pipeline` run asks the GC for those too.
+
+**Other sources:**
+
 | Source | How | Notes |
 |---|---|---|
-| Your CS2 matches | In CS2: Watch → Your Matches → download, then `collect --cs2-replays` | Works now. Each demo contains 5 enemies. Valve keeps replays only a few weeks. |
-| Steam Web API | `python -m src.data.steam_api --known-code CSGO-...` | Lists your match **sharecodes** (needs your auth code). Steam does not hand out demo files over the Web API; turning a sharecode into a demo needs the Game Coordinator (not implemented yet). Other people's matches need their auth code. |
+| CS2 replays folder | `collect --cs2-replays` | Demos you downloaded in-game. |
 | HLTV | Download the GOTV demo, extract the .rar, `collect --from-dir` | Pro teams and players. |
 | FACEIT | Data API → match → demo URL, `collect --urls` | Demo downloads need FACEIT Downloads API access (application, up to ~30 days). |
 

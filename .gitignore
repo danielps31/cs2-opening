@@ -7,3 +7,4 @@ __pycache__/
 /reports/
 *.dem
 *.dem.bz2
+tools/steam_gc/node_modules/
