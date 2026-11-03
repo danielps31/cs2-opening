@@ -230,7 +230,8 @@ function playerTable(players, isT) {
       const c = {}; g.forEach(p => c[p.route] = (c[p.route] || 0) + 1);
       const arr = g.map(p => p.site_arrival_seconds).filter(v => v != null);
       const fav = countBy(g.filter(p => p.opening_line), p => p.opening_line)[0];
-      return `<tr><td>${esc(g[0].name)}</td><td class="r">${g.length}</td><td>${splitBar(c, g.length)}</td>
+      return `<tr><td><a href="https://steamcommunity.com/profiles/${esc(g[0].steamid)}" target="_blank" rel="noopener" style="color:inherit">${esc(g[0].name)}</a>
+        <div class="muted" style="font-size:11px">${esc(g[0].steamid)}</div></td><td class="r">${g.length}</td><td>${splitBar(c, g.length)}</td>
         <td class="r">${pct(c.A || 0, g.length)}%</td><td class="r">${pct(c.B || 0, g.length)}%</td><td class="r">${pct(c.Mid || 0, g.length)}%</td>
         ${isT ? `<td class="r">${pct(g.filter(p => p.rush).length, g.length)}%</td><td class="r">${arr.length ? mean(arr).toFixed(0) + " dtk" : "-"}</td>` : ""}
         <td class="line">${fav ? esc(fav[0]) + ` <span class="muted">(${fav[1]}×)</span>` : "-"}</td></tr>`;
