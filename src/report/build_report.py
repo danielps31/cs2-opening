@@ -90,9 +90,11 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
     me = me or detect_me(players)
     me_name = players.loc[players["steamid"] == me, "name"].iloc[0] if (players["steamid"] == me).any() else me
 
+    # Demos you're not in have no enemies of yours; they only show under "everyone"
     my_team = players[players["steamid"] == me].groupby("demo_id")["team_id"].first()
-    players["is_enemy"] = (players["team_id"] != players["demo_id"].map(my_team)).astype(int)
-    teams["is_enemy"] = (teams["team_id"] != teams["demo_id"].map(my_team)).astype(int)
+    for df in (players, teams):
+        mine = df["demo_id"].map(my_team)
+        df["is_enemy"] = (mine.notna() & (df["team_id"] != mine)).astype(int)
     players["buy"] = [buy_label(p, b) for p, b in zip(players["is_pistol"], players["buy_type_code"])]
     teams["buy"] = [buy_label(p, b) for p, b in zip(teams["is_pistol"], teams["buy_type_code"])]
     teams["team_label"] = [n or p for n, p in zip(teams["team_name"], teams["players"])]

@@ -31,6 +31,11 @@ maps:
 
   de_nuke:
     radar: {pos_x: -3453, pos_y: 2887, scale: 7.0}
+    # A is stacked above B, so geometry can't tell them apart: list as much as possible here
+    zones:
+      A: [Hut, HutRoof, Squeaky, Heaven, Rafters]
+      B: [Ramp, Secret, Decon]
+      Mid: [Outside, Silo, Garage, Crane, Lobby]
 
   de_overpass:
     radar: {pos_x: -4831, pos_y: 1781, scale: 5.2}

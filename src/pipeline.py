@@ -46,6 +46,7 @@ def main():
     ap = argparse.ArgumentParser(description="Fetch demos for your account and build the opening report")
     ap.add_argument("--no-steam", action="store_true", help="skip the Steam download")
     ap.add_argument("--no-replays", action="store_true", help="skip the CS2 replays folder")
+    ap.add_argument("--me", default=None, help="your steamid64 (default: from the Steam login)")
     ap.add_argument("--gcpd", type=Path, action="append", default=[],
                     help="saved Steam Personal Game Data page(s) with your match history")
     args = ap.parse_args()
@@ -75,9 +76,8 @@ def main():
         radar.extract(missing, DATA / "radar")
 
     out = ROOT / "reports" / "opening_report.html"
-    sys.argv = ["build_report", "--me", my_steamid() or "", "--output", str(out)]
-    if not my_steamid():
-        sys.argv = sys.argv[:1] + sys.argv[3:]
+    me = args.me or my_steamid()
+    sys.argv = ["build_report", "--output", str(out)] + (["--me", me] if me else [])
     build_report.main()
     print(f"\n{players['demo_id'].nunique()} demos, maps: {', '.join(maps)}")
 
