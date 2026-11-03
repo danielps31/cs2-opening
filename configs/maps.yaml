@@ -1,0 +1,54 @@
+# Per-map settings.
+#
+# radar: transform from the game's overview file (game/csgo/resource/overviews/<map>.txt),
+#        used to place world X/Y on a 1024x1024 radar image.
+# zones: route label -> exact demoparser2 `last_place_name` values on the way to that site.
+#        BombsiteA / BombsiteB are always detected; places not listed fall back to
+#        geometry (clearly closer to one site's centre -> that site, otherwise Mid).
+#        Run `python -m src.features.engineer --list-places` to see every place
+#        name in your demos and which zone it ends up in.
+
+default_zones:
+  Mid: [Middle, Mid, TopofMid]
+
+maps:
+  de_dust2:
+    radar: {pos_x: -2476, pos_y: 3239, scale: 4.4}
+    zones:
+      A: [LongDoors, OutsideLong, LongA, Pit, ARamp, Catwalk, ShortStairs, UnderA, ExtendedA]
+      B: [UpperTunnel, OutsideTunnel, TunnelStairs, BDoors, Hole]
+      Mid: [Middle, TopofMid, MidDoors, LowerTunnel]
+
+  de_mirage:
+    radar: {pos_x: -3230, pos_y: 1713, scale: 5.0}
+
+  de_inferno:
+    radar: {pos_x: -2087, pos_y: 3870, scale: 4.9}
+    zones:
+      A: [Apartments, Balcony, Upstairs, BackAlley, Pit, Library, Arch, Quad, Graveyard]
+      B: [Banana, Ruins, Fountain, Coffins, Construction, Dark]
+      Mid: [Middle, TopofMid, SecondMid, LowerMid, Underpass]
+
+  de_nuke:
+    radar: {pos_x: -3453, pos_y: 2887, scale: 7.0}
+
+  de_overpass:
+    radar: {pos_x: -4831, pos_y: 1781, scale: 5.2}
+
+  de_ancient:
+    radar: {pos_x: -2953, pos_y: 2164, scale: 5.0}
+
+  de_anubis:
+    radar: {pos_x: -2796, pos_y: 3328, scale: 5.22}
+
+  de_vertigo:
+    radar: {pos_x: -3168, pos_y: 1762, scale: 4.0}
+
+  de_cache:
+    zones:
+      A: [AMain, AHalls, AStairs, ABoost, Squeaky, Highway, Truck, ForkLift]
+      B: [BMain, BHalls, SunRoom, Checkers, Heaven]
+      Mid: [Mid, Middle, MidRoof, Garage]
+
+  de_train:
+    radar: {pos_x: -2308, pos_y: 2078, scale: 4.082}

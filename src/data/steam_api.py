@@ -1,254 +1,114 @@
 """
-Steam Web API integration for CS2 match history and demo downloads.
+Steam Web API client for CS2 match sharecodes.
 
-Fetches recent match data and demo download URLs via Steam's API.
-Uses aiohttp for async HTTP. Config from env vars or .env file.
+What Steam gives you over the Web API:
+  - your match history as sharecodes (CSGO-xxxxx-...), one at a time, via
+    ICSGOPlayers_730/GetNextMatchSharingCode. This needs YOUR auth code
+    (https://help.steampowered.com/en/wizard/HelpWithGameIssue/?appid=730&issueid=128),
+    so it only works for your own account or accounts that share their code.
+
+What it does NOT give you: demo files. Turning a sharecode into a replay URL
+needs the CS2 Game Coordinator (a logged-in Steam client). Until that's wired
+up, download demos in-game (Watch > Your Matches) and use
+`python -m src.data.collect --cs2-replays`.
 """
 
-import asyncio
+import argparse
 import logging
 import os
+import time
 from pathlib import Path
-from typing import Optional
 
-import aiohttp
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
 STEAM_API_BASE = "https://api.steampowered.com"
-CS2_APP_ID = 730  # CS2 uses the same app ID as CS:GO
+NEXT_SHARECODE_URL = f"{STEAM_API_BASE}/ICSGOPlayers_730/GetNextMatchSharingCode/v1"
+MAX_RETRIES = 3
 
-# Valve's match history endpoint (requires Game Coordinator access)
-# For public match sharing codes, we use the unofficial but widely-used endpoint
-MATCH_HISTORY_URL = f"{STEAM_API_BASE}/ICSGOPlayers_730/GetNextMatchSharingCode/v1"
-MATCH_LIST_URL = f"{STEAM_API_BASE}/ICSGOPlayers_730/GetRecentGames/v1"
+SHARECODE_ALPHABET = "ABCDEFGHJKLMNOPQRSTUVWXYZabcdefhijkmnopqrstuvwxyz23456789"
 
 
-class SteamConfig:
-    """Steam API configuration from environment."""
-
-    def __init__(self):
-        self.api_key: str = os.environ.get("STEAM_API_KEY", "")
-        self.steam_id: str = os.environ.get("STEAM_ID", "")
-        self.auth_code: str = os.environ.get("STEAM_AUTH_CODE", "")
-        self.download_dir: Path = Path(
-            os.environ.get("DEMO_DOWNLOAD_DIR", "data/demos")
-        )
-        self.download_dir.mkdir(parents=True, exist_ok=True)
-
-    def validate(self) -> bool:
-        if not self.api_key:
-            logger.error("STEAM_API_KEY not set")
-            return False
-        if not self.steam_id:
-            logger.error("STEAM_ID not set")
-            return False
-        return True
+def decode_sharecode(code: str) -> dict:
+    """Sharecode -> match id, outcome (reservation) id and TV port, as the Game Coordinator expects."""
+    chars = code.removeprefix("CSGO-").replace("-", "")
+    n = 0
+    for c in reversed(chars):
+        n = n * len(SHARECODE_ALPHABET) + SHARECODE_ALPHABET.index(c)
+    raw = n.to_bytes(18, "big")
+    return {
+        "match_id": int.from_bytes(raw[0:8], "little"),
+        "outcome_id": int.from_bytes(raw[8:16], "little"),
+        "token": int.from_bytes(raw[16:18], "little"),
+    }
 
 
 class SteamAPI:
-    """Async Steam Web API client for CS2 match data."""
+    def __init__(self, api_key: str | None = None, steam_id: str | None = None, auth_code: str | None = None):
+        self.api_key = api_key or os.environ.get("STEAM_API_KEY", "")
+        self.steam_id = steam_id or os.environ.get("STEAM_ID", "")
+        self.auth_code = auth_code or os.environ.get("STEAM_AUTH_CODE", "")
+        self.client = httpx.Client(timeout=30)
 
-    def __init__(self, config: Optional[SteamConfig] = None):
-        self.config = config or SteamConfig()
-        self._session: Optional[aiohttp.ClientSession] = None
+    def _get(self, url: str, params: dict) -> httpx.Response:
+        params = {**params, "key": self.api_key}
+        for attempt in range(MAX_RETRIES):
+            resp = self.client.get(url, params=params)
+            if resp.status_code != 429:
+                return resp
+            wait = int(resp.headers.get("Retry-After", 5))
+            logger.warning("Rate limited, waiting %ds (attempt %d/%d)", wait, attempt + 1, MAX_RETRIES)
+            time.sleep(wait)
+        return resp
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=30)
-            self._session = aiohttp.ClientSession(timeout=timeout)
-        return self._session
+    def next_sharecode(self, known_code: str) -> str | None:
+        """Sharecode of the match after known_code, or None when there's no newer match."""
+        resp = self._get(NEXT_SHARECODE_URL, {
+            "steamid": self.steam_id, "steamidkey": self.auth_code, "knowncode": known_code,
+        })
+        if resp.status_code == 202:
+            return None  # no newer match yet
+        if resp.status_code == 403:
+            raise PermissionError("Steam rejected the request: check STEAM_API_KEY / STEAM_AUTH_CODE")
+        if resp.status_code == 412:
+            raise ValueError("Steam does not accept this known code; use a recent sharecode of your own match")
+        resp.raise_for_status()
+        code = resp.json().get("result", {}).get("nextcode")
+        return None if code in (None, "n/a") else code
 
-    async def close(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *args):
-        await self.close()
-
-    async def _api_get(self, url: str, params: dict) -> dict:
-        """Make authenticated GET request to Steam API."""
-        params["key"] = self.config.api_key
-        session = await self._get_session()
-
-        async with session.get(url, params=params) as resp:
-            if resp.status == 403:
-                raise PermissionError("Invalid Steam API key or insufficient permissions")
-            if resp.status == 429:
-                retry_after = int(resp.headers.get("Retry-After", 5))
-                logger.warning("Rate limited, waiting %ds", retry_after)
-                await asyncio.sleep(retry_after)
-                return await self._api_get(url, params)
-            resp.raise_for_status()
-            return await resp.json()
-
-    async def get_next_match_sharing_code(
-        self,
-        steam_id: Optional[str] = None,
-        known_code: str = "CSGO-00000-00000-00000-00000-00000",
-    ) -> Optional[str]:
-        """
-        Get the next match sharing code after a known code.
-
-        Uses Valve's GetNextMatchSharingCode endpoint.
-        Requires the player's auth code (from game settings).
-        """
-        params = {
-            "steamid": steam_id or self.config.steam_id,
-            "steamidkey": self.config.auth_code,
-            "knowncode": known_code,
-        }
-
-        try:
-            data = await self._api_get(MATCH_HISTORY_URL, params)
-            result = data.get("result", {})
-            next_code = result.get("nextcode")
-            if next_code == "n/a":
-                logger.info("No new matches available")
-                return None
-            return next_code
-        except Exception as e:
-            logger.error("Failed to get match sharing code: %s", e)
-            return None
-
-    async def get_match_details(self, match_id: str) -> Optional[dict]:
-        """
-        Fetch match details including demo download URL.
-
-        Note: Valve's official API for full match details requires
-        the Game Coordinator protocol. This uses the web API where available.
-        For full GCPD access, consider using csgo library or similar.
-        """
-        url = f"{STEAM_API_BASE}/ICSGOPlayers_730/GetMatchDetails/v1"
-        params = {"matchid": match_id}
-
-        try:
-            data = await self._api_get(url, params)
-            return data.get("result")
-        except Exception as e:
-            logger.error("Failed to get match details for %s: %s", match_id, e)
-            return None
-
-    async def get_player_stats(
-        self, steam_id: Optional[str] = None
-    ) -> Optional[dict]:
-        """Fetch CS2 player stats (kills, deaths, wins, etc.)."""
-        url = f"{STEAM_API_BASE}/ISteamUserStats/GetUserStatsForGame/v2"
-        params = {
-            "steamid": steam_id or self.config.steam_id,
-            "appid": CS2_APP_ID,
-        }
-
-        try:
-            data = await self._api_get(url, params)
-            stats = data.get("playerstats", {}).get("stats", [])
-            return {s["name"]: s["value"] for s in stats}
-        except Exception as e:
-            logger.error("Failed to get player stats: %s", e)
-            return None
-
-    async def download_demo(
-        self,
-        demo_url: str,
-        filename: Optional[str] = None,
-    ) -> Optional[Path]:
-        """
-        Download a demo file from Valve's CDN.
-
-        Demo URLs are typically: http://replay{N}.valve.net/730/{match_id}_{token}.dem.bz2
-        """
-        if not demo_url:
-            logger.error("Empty demo URL")
-            return None
-
-        if filename is None:
-            filename = demo_url.split("/")[-1]
-        output_path = self.config.download_dir / filename
-
-        if output_path.exists():
-            logger.info("Demo already downloaded: %s", output_path)
-            return output_path
-
-        logger.info("Downloading demo: %s", demo_url)
-        session = await self._get_session()
-
-        try:
-            async with session.get(demo_url) as resp:
-                resp.raise_for_status()
-                total = int(resp.headers.get("Content-Length", 0))
-
-                with open(output_path, "wb") as f:
-                    downloaded = 0
-                    async for chunk in resp.content.iter_chunked(1024 * 64):
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total > 0 and downloaded % (1024 * 1024) == 0:
-                            pct = (downloaded / total) * 100
-                            logger.info("Download progress: %.1f%%", pct)
-
-            logger.info("Downloaded demo to %s (%.1f MB)", output_path, output_path.stat().st_size / 1e6)
-            return output_path
-
-        except Exception as e:
-            logger.error("Failed to download demo: %s", e)
-            if output_path.exists():
-                output_path.unlink()
-            return None
-
-    async def collect_recent_demos(
-        self,
-        max_matches: int = 10,
-    ) -> list[Path]:
-        """
-        Iterate through recent match sharing codes and download demos.
-
-        Returns list of downloaded demo file paths.
-        """
-        if not self.config.validate():
-            raise ValueError("Steam config not properly set. Check env vars.")
-
-        downloaded = []
-        code = "CSGO-00000-00000-00000-00000-00000"
-
-        for i in range(max_matches):
-            next_code = await self.get_next_match_sharing_code(known_code=code)
-            if not next_code:
-                logger.info("No more matches after %d codes", i)
+    def sharecodes_after(self, known_code: str, limit: int = 50) -> list[str]:
+        codes = []
+        code = known_code
+        while len(codes) < limit:
+            code = self.next_sharecode(code)
+            if not code:
                 break
-
-            code = next_code
-            logger.info("Match %d: sharing code = %s", i + 1, code)
-
-            # Get match details for demo URL
-            details = await self.get_match_details(code)
-            if details and "demo_url" in details:
-                path = await self.download_demo(details["demo_url"])
-                if path:
-                    downloaded.append(path)
-
-        return downloaded
+            codes.append(code)
+        return codes
 
 
-async def main():
-    """CLI entry point: download recent demos."""
-    logging.basicConfig(level=logging.INFO)
+def main():
+    ap = argparse.ArgumentParser(description="Fetch your CS2 match sharecodes from Steam")
+    ap.add_argument("--known-code", required=True,
+                    help="a sharecode of one of your matches (CS2 > Watch > Your Matches > copy share link)")
+    ap.add_argument("--limit", type=int, default=50)
+    ap.add_argument("--output", default="data/sharecodes.txt")
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    async with SteamAPI() as api:
-        stats = await api.get_player_stats()
-        if stats:
-            print(f"Player stats: {len(stats)} entries")
-            for key in ["total_kills", "total_deaths", "total_wins"]:
-                if key in stats:
-                    print(f"  {key}: {stats[key]}")
-
-        demos = await api.collect_recent_demos(max_matches=5)
-        print(f"Downloaded {len(demos)} demos")
+    api = SteamAPI()
+    if not (api.api_key and api.steam_id and api.auth_code):
+        raise SystemExit("Set STEAM_API_KEY, STEAM_ID and STEAM_AUTH_CODE in .env")
+    codes = api.sharecodes_after(args.known_code, args.limit)
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    existing = set(out.read_text().split()) if out.exists() else set()
+    out.write_text("\n".join(sorted(existing | set(codes))) + "\n")
+    print(f"{len(codes)} new sharecodes -> {out}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

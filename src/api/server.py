@@ -1,84 +1,97 @@
-"""FastAPI prediction endpoint for CS2 movement predictions."""
+"""FastAPI prediction endpoint: route probabilities and positions for one player at round start."""
 
+import json
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import numpy as np
 
-app = FastAPI(title="CS2 Movement Predictor", version="0.1.0")
+from src.features.schema import add_derived_features, feature_matrix
+from src.models.position_predictor import PositionPredictor
+from src.models.route_classifier import RouteClassifier
+
+MODEL_DIR = Path(os.environ.get("MODEL_DIR", "models"))
+MODELS: dict[str, dict] = {}
+
+
+def load_models(model_dir: Path = MODEL_DIR) -> None:
+    MODELS.clear()
+    for meta_path in model_dir.glob("*/meta.json"):
+        meta = json.loads(meta_path.read_text())
+        clf = RouteClassifier()
+        clf.load(meta_path.parent / "route_classifier.json", meta["route"]["classes"])
+        MODELS[meta["map_name"]] = {
+            "meta": meta, "route": clf,
+            "position": PositionPredictor.load(meta_path.parent / "position_predictor.pt"),
+        }
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    load_models()
+    yield
+
+
+app = FastAPI(title="CS2 Opening Predictor", version="0.2.0", lifespan=lifespan)
 
 
 class RoundState(BaseModel):
-    """Input: current round state for prediction."""
-    map_name: str = "de_dust2"
-    round_number: int
+    """One player at freeze end. Team averages default to the player's own values."""
+    map_name: str
     side: str  # "T" or "CT"
-    score_team: int
-    score_opponent: int
-    equipment_value: float
-    freeze_money: float
-    loss_bonus: int
-    buy_type: str  # "eco", "force", "full"
+    round_number: int
+    score_team: int = 0
+    score_opponent: int = 0
+    prev_round_won: bool = False
+    loss_bonus: int = 1400
+    money: float
+    equip_value: float
+    team_money_avg: float | None = None
+    team_equip_avg: float | None = None
     spawn_x: float
     spawn_y: float
 
 
 class Prediction(BaseModel):
-    """Output: predicted route and positions."""
-    route: str  # "A_site", "B_site", "Mid"
+    route: str
     route_probabilities: dict[str, float]
-    predicted_positions: list[dict[str, float]]  # [{x, y, t_seconds}]
-
-
-# Models loaded at startup
-route_model = None
-position_model = None
-
-
-@app.on_event("startup")
-async def load_models():
-    global route_model, position_model
-    # TODO: Load trained models from disk
-    pass
+    predicted_positions: list[dict[str, float]]  # [{t_seconds, x, y}]
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "models_loaded": route_model is not None}
+    return {"status": "ok", "maps": sorted(MODELS)}
 
 
 @app.post("/predict", response_model=Prediction)
 async def predict(state: RoundState):
-    if route_model is None:
-        raise HTTPException(503, "Models not loaded")
+    models = MODELS.get(state.map_name)
+    if models is None:
+        raise HTTPException(404, f"No model for {state.map_name}. Loaded: {sorted(MODELS)}")
 
-    # Build feature vector from round state
-    features = np.array([[
-        state.round_number,
-        1 if state.side == "CT" else 0,
-        state.score_team - state.score_opponent,
-        state.equipment_value,
-        state.freeze_money,
-        state.loss_bonus,
-        {"eco": 0, "force": 1, "full": 2}.get(state.buy_type, 0),
-        state.spawn_x,
-        state.spawn_y,
-    ]])
+    row = state.model_dump()
+    row["prev_round_won"] = int(row["prev_round_won"])
+    row["team_money_avg"] = row["team_money_avg"] if row["team_money_avg"] is not None else row["money"]
+    row["team_equip_avg"] = row["team_equip_avg"] if row["team_equip_avg"] is not None else row["equip_value"]
+    X = feature_matrix(add_derived_features(pd.DataFrame([row])))
 
-    route_probs = route_model.predict_proba(features)[0]
-    route_idx = int(np.argmax(route_probs))
-    route_labels = ["A_site", "B_site", "Mid"]
-
-    positions = position_model.predict(features)
-
+    clf = models["route"]
+    probs = clf.predict_proba(X)[0]
+    positions = models["position"].predict(X)[0]
+    horizons = models["position"].horizons
     return Prediction(
-        route=route_labels[route_idx],
-        route_probabilities=dict(zip(route_labels, route_probs.tolist())),
+        route=clf.classes[int(probs.argmax())],
+        route_probabilities={c: round(float(p), 3) for c, p in zip(clf.classes, probs)},
         predicted_positions=[
-            {"x": float(positions[0][0]), "y": float(positions[0][1]), "t_seconds": 15.0}
+            {"t_seconds": float(t), "x": float(positions[2 * i]), "y": float(positions[2 * i + 1])}
+            for i, t in enumerate(horizons)
         ],
     )
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=os.environ.get("API_HOST", "127.0.0.1"), port=int(os.environ.get("API_PORT", 8000)))

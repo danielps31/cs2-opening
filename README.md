@@ -1,70 +1,80 @@
-# CS2 Round-Start Movement Predictor
+# CS2 Opening Scout
 
-Predict Counter-Strike 2 player movement routes at round start using machine learning.
+Learn where players go in the first 60 seconds of a CS2 round, like an opening book in chess.
+Feed it demos, get a web report per map: where enemy Ts go (and how many), how often they rush,
+enemy CT setups, and each player's and team's habits.
 
-## Overview
+## What you get
 
-This system ingests CS2 demo files and Steam API data to predict where players will move in the opening seconds of each round. It combines economy state, map context, round history, and historical position data to classify likely routes (A/B/Mid) and predict x,y coordinates.
+`reports/opening_report.html`, a single page you open in a browser, filterable by map, enemies vs everyone, and buy type (pistol/eco/force/full):
 
-## Architecture
+- **As CT:** average enemies per site, a suggested 5-player split (e.g. `2 A · 1 Mid · 2 B`),
+  how often ≥3 come to one site, rush rate (any T player on a site within 20 s, including 1–2 player rushes),
+  T strategy per round (`A rush`, `B execute`, `Default > B`, ...), most common opening lines
+  (`TSpawn > TYard > OutsideA > AStairs > AMain > BombsiteA`) and a per-player table.
+- **As T:** enemy CT setups (`2A-1Mid-2B`), the thinnest site, each CT's usual position at 20 s.
+- **Per team**, a **movement map** drawn from player positions, and **opening kills** (who and where).
 
-```
-Steam API ──► Demo Downloader ──► Demo Parser ──► Feature Store ──► ML Models ──► Prediction API
-```
+"You" are auto-detected as the player present in the most demos; everyone on the other team is an enemy.
 
-### Pipeline
+## Where the data comes from
 
-1. **Data Ingestion** — Pull match history from Steam Web API, download .dem replay files
-2. **Demo Parsing** — Extract tick-level player positions, economy, events using demoparser2
-3. **Feature Engineering** — Build features: economy (loss bonus, equipment value), side, map, round number, score differential, buy type
-4. **Model Training**
-   - **Route Classifier** (XGBoost) — Predict A-site / B-site / Mid route per player
-   - **Position Predictor** (MLP) — Predict x,y coordinates at T+5s, T+10s, T+15s
-5. **Serving** — FastAPI endpoint returns predictions given current round state
+| Source | How | Notes |
+|---|---|---|
+| Your CS2 matches | In CS2: Watch → Your Matches → download, then `collect --cs2-replays` | Works now. Each demo contains 5 enemies. Valve keeps replays only a few weeks. |
+| Steam Web API | `python -m src.data.steam_api --known-code CSGO-...` | Lists your match **sharecodes** (needs your auth code). Steam does not hand out demo files over the Web API; turning a sharecode into a demo needs the Game Coordinator (not implemented yet). Other people's matches need their auth code. |
+| HLTV | Download the GOTV demo, extract the .rar, `collect --from-dir` | Pro teams and players. |
+| FACEIT | Data API → match → demo URL, `collect --urls` | Demo downloads need FACEIT Downloads API access (application, up to ~30 days). |
 
-## Project Structure
-
-```
-├── data/
-│   ├── raw/demos/          # Raw .dem files
-│   └── processed/          # Parquet feature tables
-├── src/
-│   ├── data/
-│   │   ├── demo_parser.py  # Parse .dem files via demoparser2
-│   │   └── steam_api.py    # Steam Web API client
-│   ├── features/
-│   │   └── engineer.py     # Feature extraction pipeline
-│   ├── models/
-│   │   ├── route_classifier.py   # XGBoost A/B/Mid classifier
-│   │   └── position_predictor.py # MLP for x,y prediction
-│   ├── visualization/
-│   │   └── heatmap.py      # Position heatmaps on radar images
-│   └── api/
-│       └── server.py       # FastAPI prediction endpoint
-├── configs/
-│   ├── model_config.yaml   # Hyperparameters, thresholds
-│   └── steam_config.yaml   # API endpoints, rate limits
-├── docs/
-│   ├── erd.html            # Entity Relationship Diagram
-│   └── architecture.html   # System Architecture Diagram
-├── requirements.txt
-└── .env.example
-```
-
-## Quick Start
+## Quick start
 
 ```bash
+python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env  # Add your Steam API key
-python -m src.data.steam_api --fetch-recent 50
-python -m src.data.demo_parser --input data/raw/demos/ --output data/processed/
-python -m src.features.engineer
-python -m src.models.route_classifier --train
-python -m src.api.server
+
+python -m src.data.collect --cs2-replays            # or --from-dir PATH / --urls urls.txt
+python -m src.data.demo_parser                      # data/raw/demos -> data/parsed
+python -m src.features.engineer                     # -> data/processed/{players,teams}.parquet
+python -m src.report.build_report                   # -> reports/opening_report.html
 ```
 
-## Requirements
+Optional:
 
-- Python 3.10+
-- Steam Web API key
-- CS2 demo files (.dem format)
+```bash
+python -m src.features.engineer --list-places       # place names per map and the zone each maps to
+python -m src.models.train                          # per-map route + position models -> models/<map>/
+python -m src.api.server                            # POST /predict, GET /health
+```
+
+## How routes are labelled
+
+- **Zone** of a position: a `BombsiteA`/`BombsiteB` place name; else the map's list in
+  `configs/maps.yaml`; else geometry (clearly closer to one site's centre → that site, otherwise Mid).
+- **T player route:** the first site reached within 60 s; if none, the last zone they were in.
+  **Rush** = on a site within `rush_seconds` (20).
+- **CT player route:** their zone at `ct_setup_seconds` (20).
+- **T team strategy:** ≥3 rushers → `<site> rush`; ≥3 players to one site → `<site> execute`;
+  otherwise `Default > <plant site>` or `Default`. 1–2 player rushes are counted separately.
+
+Thresholds live in `configs/model_config.yaml`.
+
+## Project structure
+
+```
+src/
+  data/collect.py          gather demos (CS2 replays folder, any folder, URLs)
+  data/steam_api.py        Steam sharecodes + sharecode decoder
+  data/demo_parser.py      demo -> rounds / players / trajectory (1 sample per second, 60 s)
+  features/engineer.py     zones, routes, rushes, strategies, score/economy context
+  features/schema.py       model features shared by training and the API
+  report/                  HTML report builder + template
+  models/                  XGBoost route classifier, MLP position predictor, train.py
+  api/server.py            FastAPI
+configs/                   model_config.yaml, maps.yaml
+tests/
+```
+
+## Status
+
+The report is the useful part today. The ML models train and serve, but with a handful of demos they do
+no better than "always guess the most common route". They need many more demos per map.

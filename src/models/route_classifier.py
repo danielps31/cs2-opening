@@ -1,74 +1,44 @@
-"""XGBoost classifier for A/B/Mid route prediction at round start."""
+"""XGBoost classifier: which zone (A / B / Mid) a player takes in the opening."""
 
-import yaml
-import numpy as np
-import pandas as pd
 from pathlib import Path
 
-try:
-    import xgboost as xgb
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import classification_report
-except ImportError:
-    xgb = None
+import numpy as np
+import xgboost as xgb
 
-
-LABEL_MAP = {0: "A_site", 1: "B_site", 2: "Mid"}
-CONFIG_PATH = Path(__file__).parents[2] / "configs" / "model_config.yaml"
-
-
-def load_config() -> dict:
-    with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)["route_classifier"]
+from src.config import model_config
 
 
 class RouteClassifier:
-    """Predict player route (A / B / Mid) from round-start features."""
-
     def __init__(self):
-        cfg = load_config()
+        cfg = model_config()["route_classifier"]
         self.params = cfg["params"]
+        self.classes: list[str] = []
         self.model: xgb.XGBClassifier | None = None
 
-    def train(self, X: pd.DataFrame, y: pd.Series) -> dict:
-        if xgb is None:
-            raise ImportError("xgboost required: pip install xgboost")
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-
+    def train(self, X: np.ndarray, y: np.ndarray, X_val: np.ndarray, y_val: np.ndarray) -> None:
+        order = model_config()["route_classifier"]["classes"]
+        self.classes = [c for c in order if c in set(y)]
+        index = {c: i for i, c in enumerate(self.classes)}
+        val_mask = np.isin(y_val, self.classes)
         self.model = xgb.XGBClassifier(**self.params)
         self.model.fit(
-            X_train, y_train,
-            eval_set=[(X_test, y_test)],
-            verbose=50,
+            X, np.array([index[c] for c in y]),
+            eval_set=[(X_val[val_mask], np.array([index[c] for c in y_val[val_mask]]))],
+            verbose=False,
         )
 
-        preds = self.model.predict(X_test)
-        report = classification_report(y_test, preds, target_names=list(LABEL_MAP.values()), output_dict=True)
-        return report
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        if self.model is None:
-            raise RuntimeError("Model not trained or loaded")
-        return self.model.predict(X)
-
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
         if self.model is None:
             raise RuntimeError("Model not trained or loaded")
         return self.model.predict_proba(X)
 
-    def save(self, path: str | Path) -> None:
-        if self.model:
-            self.model.save_model(str(path))
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return np.array(self.classes)[self.predict_proba(X).argmax(axis=1)]
 
-    def load(self, path: str | Path) -> None:
-        if xgb is None:
-            raise ImportError("xgboost required")
+    def save(self, path: str | Path) -> None:
+        self.model.save_model(str(path))
+
+    def load(self, path: str | Path, classes: list[str]) -> None:
         self.model = xgb.XGBClassifier()
         self.model.load_model(str(path))
-
-
-if __name__ == "__main__":
-    print("Route classifier — train with: python -m src.models.route_classifier --train")
+        self.classes = classes

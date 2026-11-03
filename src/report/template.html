@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CS2 Opening Report</title>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --fg: #1b1e24; --muted: #667085; --border: #e3e6eb;
+  --a: #e8833a; --b: #3b82f6; --mid: #22a06b; --unk: #9aa3af; --accent: #6d5dfc;
+  --bar-bg: #eef0f3; --warn-bg: #fff7e6; --warn-fg: #8a5a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --card: #181b21; --fg: #e8eaee; --muted: #9aa3b2; --border: #2a2f38;
+    --bar-bg: #232832; --warn-bg: #2b2414; --warn-fg: #f0c36a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 16px 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 16px 0; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--card); }
+.seg button { border: 0; background: none; color: var(--fg); padding: 6px 12px; cursor: pointer; font: inherit; }
+.seg button.on { background: var(--accent); color: #fff; }
+.label { color: var(--muted); font-size: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+.section { margin-top: 24px; }
+.big { font-size: 26px; font-weight: 700; }
+.reco { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 4px; }
+.pill { border-radius: 999px; padding: 6px 14px; font-weight: 700; color: #fff; }
+.pill.A { background: var(--a); } .pill.B { background: var(--b); } .pill.Mid { background: var(--mid); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.stat .v { font-size: 20px; font-weight: 700; } .stat .k { color: var(--muted); font-size: 12px; }
+.bar-row { display: grid; grid-template-columns: 130px 1fr 70px; gap: 8px; align-items: center; margin: 4px 0; }
+.bar { height: 14px; background: var(--bar-bg); border-radius: 4px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); }
+.bar > i.A { background: var(--a); } .bar > i.B { background: var(--b); } .bar > i.Mid { background: var(--mid); }
+.num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+td.r, th.r { text-align: right; }
+.split { display: flex; height: 10px; border-radius: 4px; overflow: hidden; min-width: 120px; background: var(--bar-bg); }
+.split i { display: block; height: 100%; }
+.split .A { background: var(--a); } .split .B { background: var(--b); } .split .Mid { background: var(--mid); } .split .unknown { background: var(--unk); }
+.line { font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: normal; }
+.warn { background: var(--warn-bg); color: var(--warn-fg); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+svg.map { width: 100%; height: auto; background: var(--bar-bg); border-radius: 8px; }
+.muted { color: var(--muted); }
+input[type=range] { width: 200px; vertical-align: middle; }
+@media (max-width: 600px) { .bar-row { grid-template-columns: 100px 1fr 60px; } .stats { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CS2 Opening Report</h1>
+  <p class="sub" id="summary"></p>
+
+  <div class="controls">
+    <div><div class="label">Map</div><div class="seg" id="mapSeg"></div></div>
+    <div><div class="label">Pemain</div><div class="seg" id="whoSeg"></div></div>
+    <div><div class="label">Buy musuh</div><div class="seg" id="buySeg"></div></div>
+  </div>
+  <div id="sampleWarn"></div>
+
+  <div class="section">
+    <h2>Saat kamu CT: musuh T ke mana di 60 detik awal?</h2>
+    <div class="grid">
+      <div class="card" id="recoCard"></div>
+      <div class="card"><h3 style="margin-top:0">Strategi tim T</h3><div id="tStrat"></div></div>
+      <div class="card"><h3 style="margin-top:0">Jumlah musuh per site (per ronde)</h3><div id="tCounts"></div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Opening line paling sering (per pemain T)</h3><div id="tLines"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Kebiasaan per pemain (sisi T)</h3><div class="table-wrap" id="tPlayers"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Saat kamu T: setup CT musuh</h2>
+    <div class="grid">
+      <div class="card" id="ctReco"></div>
+      <div class="card"><h3 style="margin-top:0">Setup CT</h3><div id="ctSetups"></div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Posisi per pemain (sisi CT, detik ke-20)</h3><div class="table-wrap" id="ctPlayers"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Per tim</h2>
+    <div class="card"><div class="table-wrap" id="teamTable"></div></div>
+  </div>
+
+  <div class="section">
+    <h2>Peta pergerakan</h2>
+    <div class="card">
+      <div class="controls" style="margin-top:0">
+        <div><div class="label">Sisi</div><div class="seg" id="sideSeg"></div></div>
+        <div><div class="label">Sampai detik ke-<b id="tVal">20</b></div><input type="range" id="tRange" min="2" max="60" step="2" value="20"></div>
+      </div>
+      <div class="legend"><span><i style="background:var(--a)"></i>ke A</span><span><i style="background:var(--b)"></i>ke B</span><span><i style="background:var(--mid)"></i>Mid</span><span><i style="background:var(--unk)"></i>belum jelas</span></div>
+      <div id="mapSvg"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Opening kill</h2>
+    <div class="grid">
+      <div class="card" id="fkSide"></div>
+      <div class="card"><h3 style="margin-top:0">Lokasi kill pertama</h3><div id="fkPlaces"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const ROUTES = ["A", "B", "Mid", "unknown"];
+const COLORS = {A: "var(--a)", B: "var(--b)", Mid: "var(--mid)", unknown: "var(--unk)"};
+const maps = [...new Set(DATA.teams.map(t => t.map_name))]
+  .sort((a, b) => DATA.teams.filter(t => t.map_name === b).length - DATA.teams.filter(t => t.map_name === a).length);
+const state = {map: maps[0], who: "enemy", buy: "all", side: "T", t: 20};
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const pct = (n, d) => d ? Math.round(100 * n / d) : 0;
+const mean = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+const mapName = m => m.replace(/^de_/, "").replace(/^./, c => c.toUpperCase());
+
+function seg(el, options, key, onChange) {
+  el.innerHTML = options.map(([v, label]) => `<button data-v="${esc(v)}">${esc(label)}</button>`).join("");
+  const sync = () => el.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === String(state[key])));
+  el.onclick = e => { const b = e.target.closest("button"); if (!b) return; state[key] = b.dataset.v; sync(); (onChange || render)(); };
+  sync();
+}
+
+function bars(items, total, cls) {
+  if (!total) return `<p class="muted">Belum ada data.</p>`;
+  return items.map(([label, n, c]) => `<div class="bar-row"><span>${esc(label)}</span>
+    <div class="bar"><i class="${c || cls || ""}" style="width:${pct(n, total)}%"></i></div>
+    <span class="num">${pct(n, total)}% · ${n}</span></div>`).join("");
+}
+
+function countBy(rows, f) {
+  const m = new Map();
+  rows.forEach(r => { const k = f(r); m.set(k, (m.get(k) || 0) + 1); });
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function splitBar(counts, total) {
+  return `<div class="split">${ROUTES.map(r => counts[r] ? `<i class="${r}" style="width:${pct(counts[r], total)}%" title="${r} ${pct(counts[r], total)}%"></i>` : "").join("")}</div>`;
+}
+
+// Rows for the current filters. side = the enemy's side.
+function teamRows(side) {
+  return DATA.teams.filter(t => t.map_name === state.map && t.side === side &&
+    (state.who === "all" || t.is_enemy) && (state.buy === "all" || t.buy === state.buy));
+}
+function playerRows(side) {
+  return DATA.players.filter(p => p.map_name === state.map && p.side === side &&
+    (state.who === "all" || p.is_enemy) && (state.buy === "all" || p.buy === state.buy));
+}
+
+// Spread 5 defenders over the expected attackers per site
+function allocate(eA, eB, eMid) {
+  const mid = eMid >= 0.75 ? 1 : 0;
+  const rest = 5 - mid;
+  let a = eA + eB ? Math.round(rest * eA / (eA + eB)) : Math.round(rest / 2);
+  a = Math.min(Math.max(a, 1), rest - 1);
+  return {A: a, Mid: mid, B: rest - a};
+}
+
+function renderT() {
+  const rows = teamRows("T");
+  const n = rows.length;
+  const eA = mean(rows.map(r => r.n_A)), eB = mean(rows.map(r => r.n_B)), eMid = mean(rows.map(r => r.n_Mid));
+  const stackA = rows.filter(r => r.n_A >= 3).length, stackB = rows.filter(r => r.n_B >= 3).length;
+  const anyRush = rows.filter(r => r.rushers > 0).length;
+  const alloc = allocate(eA, eB, eMid);
+  document.getElementById("recoCard").innerHTML = n ? `
+    <h3 style="margin-top:0">Saran posisi CT kamu (${n} ronde)</h3>
+    <div class="reco"><span class="pill A">${alloc.A} di A</span>${alloc.Mid ? `<span class="pill Mid">${alloc.Mid} di Mid</span>` : ""}<span class="pill B">${alloc.B} di B</span></div>
+    <p class="muted" style="margin:4px 0 0">Dibagi sesuai rata-rata musuh yang datang ke tiap site. Ini patokan kasar, bukan jaminan.</p>
+    <div class="stats">
+      <div class="stat"><div class="v">${eA.toFixed(1)}</div><div class="k">rata-rata musuh ke A</div></div>
+      <div class="stat"><div class="v">${eB.toFixed(1)}</div><div class="k">rata-rata musuh ke B</div></div>
+      <div class="stat"><div class="v">${eMid.toFixed(1)}</div><div class="k">tetap di Mid</div></div>
+      <div class="stat"><div class="v">${pct(stackA, n)}%</div><div class="k">≥3 musuh ke A</div></div>
+      <div class="stat"><div class="v">${pct(stackB, n)}%</div><div class="k">≥3 musuh ke B</div></div>
+      <div class="stat"><div class="v">${pct(anyRush, n)}%</div><div class="k">ada yang rush (≤20 dtk)</div></div>
+    </div>` : `<p class="muted">Belum ada ronde musuh di sisi T untuk filter ini.</p>`;
+
+  const strat = countBy(rows, r => r.strategy).map(([k, v]) => [k, v, k.startsWith("A") ? "A" : k.startsWith("B") ? "B" : ""]);
+  const smallRush = rows.filter(r => r.rushers > 0 && r.rushers < 3);
+  document.getElementById("tStrat").innerHTML = bars(strat, n) +
+    (smallRush.length ? `<p class="muted" style="margin:10px 0 0">Rush kecil (1–2 orang): ${smallRush.length} ronde.
+      ${countBy(smallRush, r => `${r.rush_site} ×${r.rushers}`).map(([k, v]) => `${esc(k)}: ${v}`).join(" · ")}</p>` : "");
+
+  const hist = site => [0, 1, 2, 3, 4, 5].map(k => [`${k} orang ke ${site}`, rows.filter(r => r["n_" + site] === k).length, site]);
+  document.getElementById("tCounts").innerHTML =
+    `<h3 style="margin-top:0">Site A</h3>${bars(hist("A"), n)}<h3>Site B</h3>${bars(hist("B"), n)}`;
+
+  const players = playerRows("T");
+  const lines = countBy(players.filter(p => p.opening_line), p => p.opening_line + "|" + p.route).slice(0, 10);
+  document.getElementById("tLines").innerHTML = lines.length ? `<table><tr><th>Jalur</th><th>Ke</th><th class="r">Jumlah</th></tr>
+    ${lines.map(([k, v]) => { const [line, route] = k.split("|"); return `<tr><td class="line">${esc(line)}</td><td><span style="color:${COLORS[route]}">●</span> ${esc(route)}</td><td class="r">${v}</td></tr>`; }).join("")}</table>`
+    : `<p class="muted">Belum ada data.</p>`;
+
+  document.getElementById("tPlayers").innerHTML = playerTable(players, true);
+}
+
+function playerTable(players, isT) {
+  const by = new Map();
+  players.forEach(p => { if (!by.has(p.steamid)) by.set(p.steamid, []); by.get(p.steamid).push(p); });
+  const rows = [...by.values()].sort((a, b) => b.length - a.length);
+  if (!rows.length) return `<p class="muted">Belum ada data.</p>`;
+  return `<table><tr><th>Pemain</th><th class="r">Ronde</th><th>Sebaran</th><th class="r">A</th><th class="r">B</th><th class="r">Mid</th>
+    ${isT ? `<th class="r">Rush</th><th class="r">Tiba di site</th>` : ""}<th>Jalur favorit</th></tr>` +
+    rows.map(g => {
+      const c = {}; g.forEach(p => c[p.route] = (c[p.route] || 0) + 1);
+      const arr = g.map(p => p.site_arrival_seconds).filter(v => v != null);
+      const fav = countBy(g.filter(p => p.opening_line), p => p.opening_line)[0];
+      return `<tr><td>${esc(g[0].name)}</td><td class="r">${g.length}</td><td>${splitBar(c, g.length)}</td>
+        <td class="r">${pct(c.A || 0, g.length)}%</td><td class="r">${pct(c.B || 0, g.length)}%</td><td class="r">${pct(c.Mid || 0, g.length)}%</td>
+        ${isT ? `<td class="r">${pct(g.filter(p => p.rush).length, g.length)}%</td><td class="r">${arr.length ? mean(arr).toFixed(0) + " dtk" : "-"}</td>` : ""}
+        <td class="line">${fav ? esc(fav[0]) + ` <span class="muted">(${fav[1]}×)</span>` : "-"}</td></tr>`;
+    }).join("") + `</table>`;
+}
+
+function renderCT() {
+  const rows = teamRows("CT");
+  const n = rows.length;
+  const eA = mean(rows.map(r => r.n_A)), eB = mean(rows.map(r => r.n_B)), eMid = mean(rows.map(r => r.n_Mid));
+  const thin = eA <= eB ? "A" : "B";
+  document.getElementById("ctReco").innerHTML = n ? `
+    <h3 style="margin-top:0">Site paling tipis (${n} ronde)</h3>
+    <div class="reco"><span class="pill ${thin}">Site ${thin}</span></div>
+    <p class="muted" style="margin:4px 0 0">Rata-rata CT musuh di detik ke-20.</p>
+    <div class="stats">
+      <div class="stat"><div class="v">${eA.toFixed(1)}</div><div class="k">CT di A</div></div>
+      <div class="stat"><div class="v">${eB.toFixed(1)}</div><div class="k">CT di B</div></div>
+      <div class="stat"><div class="v">${eMid.toFixed(1)}</div><div class="k">CT di Mid</div></div>
+    </div>` : `<p class="muted">Belum ada ronde musuh di sisi CT untuk filter ini.</p>`;
+  document.getElementById("ctSetups").innerHTML = bars(countBy(rows, r => r.strategy), n);
+  document.getElementById("ctPlayers").innerHTML = playerTable(playerRows("CT"), false);
+}
+
+function renderTeams() {
+  const rows = DATA.teams.filter(t => t.map_name === state.map && (state.who === "all" || t.is_enemy) && (state.buy === "all" || t.buy === state.buy));
+  const by = new Map();
+  rows.forEach(r => { const k = r.team_id + r.side; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
+  const groups = [...by.values()].sort((a, b) => b.length - a.length);
+  document.getElementById("teamTable").innerHTML = groups.length ? `<table><tr><th>Tim</th><th>Sisi</th><th class="r">Ronde</th><th class="r">Menang</th><th>Strategi tersering</th></tr>` +
+    groups.map(g => `<tr><td style="white-space:normal">${esc(g[0].team_label)}</td><td>${g[0].side}</td><td class="r">${g.length}</td>
+      <td class="r">${pct(g.filter(r => r.won).length, g.length)}%</td>
+      <td style="white-space:normal">${countBy(g, r => r.strategy).slice(0, 3).map(([k, v]) => `${esc(k)} <span class="muted">${pct(v, g.length)}%</span>`).join(" · ")}</td></tr>`).join("") + `</table>`
+    : `<p class="muted">Belum ada data.</p>`;
+}
+
+function renderMap() {
+  const c = DATA.dot_columns, idx = Object.fromEntries(c.map((k, i) => [k, i]));
+  const all = DATA.dots.filter(d => d[idx.map_name] === state.map);
+  const pts = all.filter(d => d[idx.side] === state.side && d[idx.t_seconds] <= state.t &&
+    (state.who === "all" || d[idx.is_enemy]) && (state.buy === "all" || d[idx.buy] === state.buy));
+  if (!all.length) { document.getElementById("mapSvg").innerHTML = ""; return; }
+  const xs = all.map(d => d[idx.X]), ys = all.map(d => d[idx.Y]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const size = Math.max(maxX - minX, maxY - minY) || 1, pad = 20, W = 700;
+  const px = x => pad + (x - minX) / size * (W - 2 * pad), py = y => pad + (maxY - y) / size * (W - 2 * pad);
+  const centres = DATA.centres[state.map] || {};
+  // Faint layer of every sample so the map outline shows even when filtered
+  const base = all.filter((_, i) => i % 3 === 0).map(d => `<circle cx="${px(d[idx.X]).toFixed(1)}" cy="${py(d[idx.Y]).toFixed(1)}" r="1.4" fill="var(--border)"/>`).join("");
+  const dots = pts.map(d => `<circle cx="${px(d[idx.X]).toFixed(1)}" cy="${py(d[idx.Y]).toFixed(1)}" r="2.2" fill="${COLORS[d[idx.route]] || COLORS.unknown}" fill-opacity=".55"/>`).join("");
+  const labels = Object.entries(centres).map(([k, [x, y]]) => `<text x="${px(x)}" y="${py(y)}" text-anchor="middle" dominant-baseline="middle" font-size="28" font-weight="800" fill="var(--fg)" opacity=".75">${k}</text>`).join("");
+  document.getElementById("mapSvg").innerHTML = `<svg class="map" viewBox="0 0 ${W} ${W}" role="img" aria-label="Posisi pemain">${base}${dots}${labels}</svg>`;
+}
+
+function renderFirstKills() {
+  const rows = teamRows("T").filter(r => r.first_kill_side);
+  const n = rows.length;
+  const tWins = rows.filter(r => r.first_kill_side === "T").length;
+  document.getElementById("fkSide").innerHTML = `<h3 style="margin-top:0">Siapa dapat kill pertama</h3>` +
+    bars([["T dapat duluan", tWins], ["CT dapat duluan", n - tWins]], n) +
+    (n ? `<p class="muted">Rata-rata terjadi di detik ke-${mean(rows.map(r => r.first_kill_seconds)).toFixed(0)}. Di sini musuh = tim T.</p>` : "");
+  document.getElementById("fkPlaces").innerHTML = bars(countBy(rows, r => r.first_kill_place || "?").slice(0, 8), n);
+}
+
+function render() {
+  const rounds = teamRows("T").length + teamRows("CT").length;
+  document.getElementById("sampleWarn").innerHTML = rounds < 30
+    ? `<div class="warn">Data masih sedikit (${rounds} ronde tim untuk filter ini). Persentase bisa berubah banyak begitu demo bertambah.</div>` : "";
+  renderT(); renderCT(); renderTeams(); renderMap(); renderFirstKills();
+}
+
+document.getElementById("summary").textContent =
+  `${DATA.summary.demos} demo · ${DATA.summary.rounds} ronde · ${DATA.summary.players} pemain · kamu: ${DATA.me.name}`;
+seg(document.getElementById("mapSeg"), maps.map(m => [m, mapName(m)]), "map");
+seg(document.getElementById("whoSeg"), [["enemy", "Musuh saja"], ["all", "Semua"]], "who");
+seg(document.getElementById("buySeg"), [["all", "Semua"], ["pistol", "Pistol"], ["eco", "Eco"], ["force", "Force"], ["full", "Full"]], "buy");
+seg(document.getElementById("sideSeg"), [["T", "T"], ["CT", "CT"]], "side", renderMap);
+document.getElementById("tRange").oninput = e => { state.t = +e.target.value; document.getElementById("tVal").textContent = state.t; renderMap(); };
+render();
+</script>
+</body>
+</html>

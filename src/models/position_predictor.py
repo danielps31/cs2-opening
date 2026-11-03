@@ -1,44 +1,24 @@
-"""Lightweight MLP for predicting player x,y coordinates at future timesteps."""
+"""MLP predicting a player's x,y at each horizon (e.g. 5/10/15 s after freeze end)."""
 
-import yaml
-import numpy as np
 from pathlib import Path
 
-try:
-    import torch
-    import torch.nn as nn
-    from torch.utils.data import DataLoader, TensorDataset
-except ImportError:
-    torch = None
-    nn = None
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+
+from src.config import model_config
 
 
-CONFIG_PATH = Path(__file__).parents[2] / "configs" / "model_config.yaml"
-
-
-def load_config() -> dict:
-    with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)["position_predictor"]
-
-
-class PositionMLP(nn.Module if nn else object):
-    """Multi-layer perceptron for x,y coordinate prediction."""
-
-    def __init__(self, input_dim: int, hidden_layers: list[int], dropout: float = 0.3):
-        if nn is None:
-            raise ImportError("torch required: pip install torch")
+class PositionMLP(nn.Module):
+    def __init__(self, input_dim: int, hidden_layers: list[int], output_dim: int, dropout: float = 0.3):
         super().__init__()
-
         layers = []
-        prev_dim = input_dim
+        prev = input_dim
         for h in hidden_layers:
-            layers.extend([
-                nn.Linear(prev_dim, h),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-            ])
-            prev_dim = h
-        layers.append(nn.Linear(prev_dim, 2))  # output: x, y
+            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
+            prev = h
+        layers.append(nn.Linear(prev, output_dim))
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -46,74 +26,63 @@ class PositionMLP(nn.Module if nn else object):
 
 
 class PositionPredictor:
-    """Train and predict player positions using PositionMLP."""
+    """Inputs and targets are standardised; the stats travel with the checkpoint."""
 
-    def __init__(self, input_dim: int = 10):
-        cfg = load_config()
-        self.config = cfg
-        self.model = PositionMLP(
-            input_dim=input_dim,
-            hidden_layers=cfg["params"]["hidden_layers"],
-            dropout=cfg["params"]["dropout"],
-        ) if nn else None
-        self.device = torch.device("cuda" if torch and torch.cuda.is_available() else "cpu")
+    def __init__(self, input_dim: int, horizons: list[int] | None = None):
+        cfg = model_config()
+        self.params = cfg["position_predictor"]["params"]
+        self.horizons = horizons or cfg["labels"]["position_horizons_seconds"]
+        self.input_dim = input_dim
+        self.model = PositionMLP(input_dim, self.params["hidden_layers"], 2 * len(self.horizons), self.params["dropout"])
+        self.stats: dict[str, np.ndarray] = {}
 
-    def train(self, X: np.ndarray, y: np.ndarray) -> list[float]:
-        if torch is None:
-            raise ImportError("torch required")
+    def _norm(self, X: np.ndarray) -> torch.Tensor:
+        return torch.from_numpy(((X - self.stats["x_mean"]) / self.stats["x_std"]).astype(np.float32))
 
-        self.model.to(self.device)
-        self.model.train()
+    def train(self, X: np.ndarray, y: np.ndarray, X_val: np.ndarray, y_val: np.ndarray) -> float:
+        """Train with early stopping. Returns the best validation RMSE in world units."""
+        self.stats = {"x_mean": X.mean(0), "x_std": X.std(0) + 1e-6, "y_mean": y.mean(0), "y_std": y.std(0) + 1e-6}
+        yt = torch.from_numpy(((y - self.stats["y_mean"]) / self.stats["y_std"]).astype(np.float32))
+        loader = DataLoader(TensorDataset(self._norm(X), yt), batch_size=self.params["batch_size"], shuffle=True)
+        Xv = self._norm(X_val)
+        yv = torch.from_numpy(((y_val - self.stats["y_mean"]) / self.stats["y_std"]).astype(np.float32))
 
-        dataset = TensorDataset(
-            torch.FloatTensor(X),
-            torch.FloatTensor(y),
-        )
-        loader = DataLoader(
-            dataset,
-            batch_size=self.config["params"]["batch_size"],
-            shuffle=True,
-        )
-
-        optimizer = torch.optim.Adam(
-            self.model.parameters(),
-            lr=self.config["params"]["learning_rate"],
-        )
-        criterion = nn.MSELoss()
-        losses = []
-
-        for epoch in range(self.config["params"]["epochs"]):
-            epoch_loss = 0.0
-            for X_batch, y_batch in loader:
-                X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params["learning_rate"])
+        loss_fn = nn.MSELoss()
+        best, best_state, stale = float("inf"), None, 0
+        for _ in range(self.params["epochs"]):
+            self.model.train()
+            for xb, yb in loader:
                 optimizer.zero_grad()
-                pred = self.model(X_batch)
-                loss = criterion(pred, y_batch)
-                loss.backward()
+                loss_fn(self.model(xb), yb).backward()
                 optimizer.step()
-                epoch_loss += loss.item()
-            losses.append(epoch_loss / len(loader))
-        return losses
+            self.model.eval()
+            with torch.no_grad():
+                val = loss_fn(self.model(Xv), yv).item()
+            if val < best:
+                best, best_state, stale = val, {k: v.clone() for k, v in self.model.state_dict().items()}, 0
+            else:
+                stale += 1
+                if stale >= self.params["patience"]:
+                    break
+        self.model.load_state_dict(best_state)
+        pred = self.predict(X_val)
+        return float(np.sqrt(((pred - y_val) ** 2).mean()))
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        if self.model is None:
-            raise RuntimeError("Model not initialized")
         self.model.eval()
         with torch.no_grad():
-            tensor = torch.FloatTensor(X).to(self.device)
-            return self.model(tensor).cpu().numpy()
+            out = self.model(self._norm(X)).numpy()
+        return out * self.stats["y_std"] + self.stats["y_mean"]
 
     def save(self, path: str | Path) -> None:
-        if self.model:
-            torch.save(self.model.state_dict(), str(path))
+        torch.save({"state_dict": self.model.state_dict(), "stats": self.stats,
+                    "horizons": self.horizons, "input_dim": self.input_dim}, str(path))
 
-    def load(self, path: str | Path, input_dim: int = 10) -> None:
-        if torch is None:
-            raise ImportError("torch required")
-        cfg = load_config()
-        self.model = PositionMLP(input_dim, cfg["params"]["hidden_layers"], cfg["params"]["dropout"])
-        self.model.load_state_dict(torch.load(str(path), weights_only=True))
-
-
-if __name__ == "__main__":
-    print("Position predictor — MLP for x,y coordinate prediction")
+    @classmethod
+    def load(cls, path: str | Path) -> "PositionPredictor":
+        ckpt = torch.load(str(path), weights_only=False)
+        obj = cls(ckpt["input_dim"], ckpt["horizons"])
+        obj.model.load_state_dict(ckpt["state_dict"])
+        obj.stats = ckpt["stats"]
+        return obj
