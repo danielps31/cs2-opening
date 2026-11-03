@@ -54,7 +54,10 @@ td.r, th.r { text-align: right; }
 .warn { background: var(--warn-bg); color: var(--warn-fg); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
-svg.map { width: 100%; height: auto; background: var(--bar-bg); border-radius: 8px; }
+svg.map { width: 100%; max-width: 820px; height: auto; display: block; margin: 8px auto 0; background: #20242b; border-radius: 8px; }
+select { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; max-width: 100%; }
+a { color: inherit; }
+.callout { font-weight: 600; font-family: system-ui, sans-serif; fill: #fff; paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
 .muted { color: var(--muted); }
 input[type=range] { width: 200px; vertical-align: middle; }
 @media (max-width: 600px) { .bar-row { grid-template-columns: 100px 1fr 60px; } .stats { grid-template-columns: repeat(2, 1fr); } }
@@ -69,8 +72,23 @@ input[type=range] { width: 200px; vertical-align: middle; }
     <div><div class="label">Map</div><div class="seg" id="mapSeg"></div></div>
     <div><div class="label">Pemain</div><div class="seg" id="whoSeg"></div></div>
     <div><div class="label">Buy musuh</div><div class="seg" id="buySeg"></div></div>
+    <div><div class="label">Pemain (nama Steam · Steam ID)</div><select id="playerSel"></select></div>
   </div>
   <div id="sampleWarn"></div>
+
+  <div class="section">
+    <h2>Peta pergerakan <span class="muted" id="mapTitle" style="font-weight:400"></span></h2>
+    <div class="card">
+      <div class="controls" style="margin-top:0">
+        <div><div class="label">Sisi</div><div class="seg" id="sideSeg"></div></div>
+        <div><div class="label">Sampai detik ke-<b id="tVal">20</b></div><input type="range" id="tRange" min="2" max="60" step="2" value="20"></div>
+      </div>
+      <label class="muted" style="font-size:12px"><input type="checkbox" id="calloutChk" checked> Nama callout</label>
+      <div class="legend"><span><i style="background:var(--a)"></i>ke A</span><span><i style="background:var(--b)"></i>ke B</span><span><i style="background:var(--mid)"></i>Mid</span><span><i style="background:var(--unk)"></i>belum jelas</span></div>
+      <div id="mapSvg"></div>
+    </div>
+  </div>
+
 
   <div class="section">
     <h2>Saat kamu CT: musuh T ke mana di 60 detik awal?</h2>
@@ -104,18 +122,6 @@ input[type=range] { width: 200px; vertical-align: middle; }
   </div>
 
   <div class="section">
-    <h2>Peta pergerakan</h2>
-    <div class="card">
-      <div class="controls" style="margin-top:0">
-        <div><div class="label">Sisi</div><div class="seg" id="sideSeg"></div></div>
-        <div><div class="label">Sampai detik ke-<b id="tVal">20</b></div><input type="range" id="tRange" min="2" max="60" step="2" value="20"></div>
-      </div>
-      <div class="legend"><span><i style="background:var(--a)"></i>ke A</span><span><i style="background:var(--b)"></i>ke B</span><span><i style="background:var(--mid)"></i>Mid</span><span><i style="background:var(--unk)"></i>belum jelas</span></div>
-      <div id="mapSvg"></div>
-    </div>
-  </div>
-
-  <div class="section">
     <h2>Opening kill</h2>
     <div class="grid">
       <div class="card" id="fkSide"></div>
@@ -128,9 +134,11 @@ input[type=range] { width: 200px; vertical-align: middle; }
 const DATA = /*__DATA__*/null;
 const ROUTES = ["A", "B", "Mid", "unknown"];
 const COLORS = {A: "var(--a)", B: "var(--b)", Mid: "var(--mid)", unknown: "var(--unk)"};
+const nameOf = Object.fromEntries(DATA.roster);
 const maps = [...new Set(DATA.teams.map(t => t.map_name))]
   .sort((a, b) => DATA.teams.filter(t => t.map_name === b).length - DATA.teams.filter(t => t.map_name === a).length);
-const state = {map: maps[0], who: "enemy", buy: "all", side: "T", t: 20};
+const state = {map: maps.includes(location.hash.slice(1)) ? location.hash.slice(1) : maps[0], who: "enemy", buy: "all", side: "T", t: 20, player: "", callouts: true};
+const steamLink = (sid, name) => `<a href="https://steamcommunity.com/profiles/${esc(sid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const pct = (n, d) => d ? Math.round(100 * n / d) : 0;
@@ -168,7 +176,8 @@ function teamRows(side) {
 }
 function playerRows(side) {
   return DATA.players.filter(p => p.map_name === state.map && p.side === side &&
-    (state.who === "all" || p.is_enemy) && (state.buy === "all" || p.buy === state.buy));
+    (state.who === "all" || p.is_enemy) && (state.buy === "all" || p.buy === state.buy) &&
+    (!state.player || p.steamid === state.player));
 }
 
 // Spread 5 defenders over the expected attackers per site
@@ -212,8 +221,13 @@ function renderT() {
 
   const players = playerRows("T");
   const lines = countBy(players.filter(p => p.opening_line), p => p.opening_line + "|" + p.route).slice(0, 10);
-  document.getElementById("tLines").innerHTML = lines.length ? `<table><tr><th>Jalur</th><th>Ke</th><th class="r">Jumlah</th></tr>
-    ${lines.map(([k, v]) => { const [line, route] = k.split("|"); return `<tr><td class="line">${esc(line)}</td><td><span style="color:${COLORS[route]}">●</span> ${esc(route)}</td><td class="r">${v}</td></tr>`; }).join("")}</table>`
+  document.getElementById("tLines").innerHTML = lines.length ? `<div class="table-wrap"><table><tr><th>Jalur</th><th>Ke</th><th class="r">Jumlah</th><th>Dipakai oleh</th></tr>
+    ${lines.map(([k, v]) => {
+      const [line, route] = k.split("|");
+      const users = countBy(players.filter(p => p.opening_line === line && p.route === route), p => p.steamid).slice(0, 3)
+        .map(([sid, n]) => `${steamLink(sid, nameOf[sid])} <span class="muted">${n}×</span>`).join(", ");
+      return `<tr><td class="line">${esc(line)}</td><td><span style="color:${COLORS[route]}">●</span> ${esc(route)}</td><td class="r">${v}</td><td>${users}</td></tr>`;
+    }).join("")}</table></div>`
     : `<p class="muted">Belum ada data.</p>`;
 
   document.getElementById("tPlayers").innerHTML = playerTable(players, true);
@@ -230,7 +244,7 @@ function playerTable(players, isT) {
       const c = {}; g.forEach(p => c[p.route] = (c[p.route] || 0) + 1);
       const arr = g.map(p => p.site_arrival_seconds).filter(v => v != null);
       const fav = countBy(g.filter(p => p.opening_line), p => p.opening_line)[0];
-      return `<tr><td><a href="https://steamcommunity.com/profiles/${esc(g[0].steamid)}" target="_blank" rel="noopener" style="color:inherit">${esc(g[0].name)}</a>
+      return `<tr><td>${steamLink(g[0].steamid, g[0].name)}
         <div class="muted" style="font-size:11px">${esc(g[0].steamid)}</div></td><td class="r">${g.length}</td><td>${splitBar(c, g.length)}</td>
         <td class="r">${pct(c.A || 0, g.length)}%</td><td class="r">${pct(c.B || 0, g.length)}%</td><td class="r">${pct(c.Mid || 0, g.length)}%</td>
         ${isT ? `<td class="r">${pct(g.filter(p => p.rush).length, g.length)}%</td><td class="r">${arr.length ? mean(arr).toFixed(0) + " dtk" : "-"}</td>` : ""}
@@ -256,13 +270,19 @@ function renderCT() {
   document.getElementById("ctPlayers").innerHTML = playerTable(playerRows("CT"), false);
 }
 
+function teamMembers(teamId) {
+  const members = new Map();
+  DATA.players.filter(p => p.team_id === teamId).forEach(p => members.set(p.steamid, p.name));
+  return [...members].map(([sid, name]) => `${steamLink(sid, name)} <span class="muted" style="font-size:11px">${esc(sid)}</span>`).join("<br>");
+}
+
 function renderTeams() {
   const rows = DATA.teams.filter(t => t.map_name === state.map && (state.who === "all" || t.is_enemy) && (state.buy === "all" || t.buy === state.buy));
   const by = new Map();
   rows.forEach(r => { const k = r.team_id + r.side; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
   const groups = [...by.values()].sort((a, b) => b.length - a.length);
   document.getElementById("teamTable").innerHTML = groups.length ? `<table><tr><th>Tim</th><th>Sisi</th><th class="r">Ronde</th><th class="r">Menang</th><th>Strategi tersering</th></tr>` +
-    groups.map(g => `<tr><td style="white-space:normal">${esc(g[0].team_label)}</td><td>${g[0].side}</td><td class="r">${g.length}</td>
+    groups.map(g => `<tr><td style="white-space:normal">${teamMembers(g[0].team_id)}</td><td>${g[0].side}</td><td class="r">${g.length}</td>
       <td class="r">${pct(g.filter(r => r.won).length, g.length)}%</td>
       <td style="white-space:normal">${countBy(g, r => r.strategy).slice(0, 3).map(([k, v]) => `${esc(k)} <span class="muted">${pct(v, g.length)}%</span>`).join(" · ")}</td></tr>`).join("") + `</table>`
     : `<p class="muted">Belum ada data.</p>`;
@@ -272,18 +292,62 @@ function renderMap() {
   const c = DATA.dot_columns, idx = Object.fromEntries(c.map((k, i) => [k, i]));
   const all = DATA.dots.filter(d => d[idx.map_name] === state.map);
   const pts = all.filter(d => d[idx.side] === state.side && d[idx.t_seconds] <= state.t &&
-    (state.who === "all" || d[idx.is_enemy]) && (state.buy === "all" || d[idx.buy] === state.buy));
+    (state.who === "all" || d[idx.is_enemy]) && (state.buy === "all" || d[idx.buy] === state.buy) &&
+    (!state.player || DATA.roster[d[idx.player]][0] === state.player));
+  document.getElementById("mapTitle").textContent = "· " + mapName(state.map) +
+    (state.player ? " · " + nameOf[state.player] : "") + ` · ${pts.length} titik`;
   if (!all.length) { document.getElementById("mapSvg").innerHTML = ""; return; }
-  const xs = all.map(d => d[idx.X]), ys = all.map(d => d[idx.Y]);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const size = Math.max(maxX - minX, maxY - minY) || 1, pad = 20, W = 700;
-  const px = x => pad + (x - minX) / size * (W - 2 * pad), py = y => pad + (maxY - y) / size * (W - 2 * pad);
-  const centres = DATA.centres[state.map] || {};
-  // Faint layer of every sample so the map outline shows even when filtered
-  const base = all.filter((_, i) => i % 3 === 0).map(d => `<circle cx="${px(d[idx.X]).toFixed(1)}" cy="${py(d[idx.Y]).toFixed(1)}" r="1.4" fill="var(--border)"/>`).join("");
-  const dots = pts.map(d => `<circle cx="${px(d[idx.X]).toFixed(1)}" cy="${py(d[idx.Y]).toFixed(1)}" r="2.2" fill="${COLORS[d[idx.route]] || COLORS.unknown}" fill-opacity=".55"/>`).join("");
-  const labels = Object.entries(centres).map(([k, [x, y]]) => `<text x="${px(x)}" y="${py(y)}" text-anchor="middle" dominant-baseline="middle" font-size="28" font-weight="800" fill="var(--fg)" opacity=".75">${k}</text>`).join("");
-  document.getElementById("mapSvg").innerHTML = `<svg class="map" viewBox="0 0 ${W} ${W}" role="img" aria-label="Posisi pemain">${base}${dots}${labels}</svg>`;
+  const radar = DATA.radars[state.map];
+  let W, px, py, bg, view;
+  if (radar) {
+    W = radar.size;
+    px = x => (x - radar.pos_x) / radar.scale;
+    py = y => (radar.pos_y - y) / radar.scale;
+    bg = `<image href="${radar.image}" x="0" y="0" width="${W}" height="${W}"/>`;
+    view = radar.view ? [radar.view[0], radar.view[1], radar.view[2], radar.view[2]] : [0, 0, W, W];
+  } else {
+    // No radar image: frame the map around the recorded positions
+    const xs = all.map(d => d[idx.X]), ys = all.map(d => d[idx.Y]);
+    const minX = Math.min(...xs), maxY = Math.max(...ys);
+    const size = Math.max(Math.max(...xs) - minX, maxY - Math.min(...ys)) || 1, pad = 20;
+    W = 700;
+    px = x => pad + (x - minX) / size * (W - 2 * pad);
+    py = y => pad + (maxY - y) / size * (W - 2 * pad);
+    view = [0, 0, W, W];
+    bg = all.filter((_, i) => i % 3 === 0).map(d => `<circle cx="${px(d[idx.X]).toFixed(1)}" cy="${py(d[idx.Y]).toFixed(1)}" r="1.4" fill="#3a3f48"/>`).join("");
+  }
+  const r = view[2] / 300;
+  const dots = pts.map(d => `<circle cx="${px(d[idx.X]).toFixed(1)}" cy="${py(d[idx.Y]).toFixed(1)}" r="${r.toFixed(1)}" fill="${COLORS[d[idx.route]] || COLORS.unknown}" fill-opacity=".7"/>`).join("");
+  const labels = state.callouts ? placeCallouts(DATA.places[state.map] || [], px, py, view[2] / 60) : "";
+  document.getElementById("mapSvg").innerHTML = `<svg class="map" viewBox="${view.join(" ")}" role="img" aria-label="Peta ${esc(mapName(state.map))}">${bg}${dots}${labels}</svg>`;
+}
+
+// Draw callout names, nudging a label down (or dropping it) when it would overlap another
+function placeCallouts(places, px, py, size) {
+  const boxes = [], out = [];
+  for (const [name, x, y] of places) {
+    const w = name.length * size * 0.55, h = size * 1.1;
+    let cx = px(x), cy = py(y), ok = false;
+    for (const dy of [0, h, -h, 2 * h]) {
+      const box = [cx - w / 2, cy + dy - h, cx + w / 2, cy + dy];
+      if (!boxes.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) {
+        boxes.push(box); cy += dy; ok = true; break;
+      }
+    }
+    if (ok) out.push(`<text class="callout" x="${cx.toFixed(0)}" y="${cy.toFixed(0)}" text-anchor="middle" style="font-size:${size.toFixed(0)}px">${esc(name)}</text>`);
+  }
+  return out.join("");
+}
+
+function renderPlayerPicker() {
+  const sel = document.getElementById("playerSel");
+  const seen = new Map();
+  DATA.players.filter(p => p.map_name === state.map && (state.who === "all" || p.is_enemy))
+    .forEach(p => seen.set(p.steamid, p.name));
+  if (state.player && !seen.has(state.player)) state.player = "";
+  sel.innerHTML = `<option value="">Semua pemain</option>` +
+    [...seen].sort((a, b) => a[1].localeCompare(b[1])).map(([sid, name]) =>
+      `<option value="${esc(sid)}" ${sid === state.player ? "selected" : ""}>${esc(name)} · ${esc(sid)}</option>`).join("");
 }
 
 function renderFirstKills() {
@@ -300,7 +364,7 @@ function render() {
   const rounds = teamRows("T").length + teamRows("CT").length;
   document.getElementById("sampleWarn").innerHTML = rounds < 30
     ? `<div class="warn">Data masih sedikit (${rounds} ronde tim untuk filter ini). Persentase bisa berubah banyak begitu demo bertambah.</div>` : "";
-  renderT(); renderCT(); renderTeams(); renderMap(); renderFirstKills();
+  renderPlayerPicker(); renderT(); renderCT(); renderTeams(); renderMap(); renderFirstKills();
 }
 
 document.getElementById("summary").textContent =
@@ -309,6 +373,8 @@ seg(document.getElementById("mapSeg"), maps.map(m => [m, mapName(m)]), "map");
 seg(document.getElementById("whoSeg"), [["enemy", "Musuh saja"], ["all", "Semua"]], "who");
 seg(document.getElementById("buySeg"), [["all", "Semua"], ["pistol", "Pistol"], ["eco", "Eco"], ["force", "Force"], ["full", "Full"]], "buy");
 seg(document.getElementById("sideSeg"), [["T", "T"], ["CT", "CT"]], "side", renderMap);
+document.getElementById("playerSel").onchange = e => { state.player = e.target.value; render(); };
+document.getElementById("calloutChk").onchange = e => { state.callouts = e.target.checked; renderMap(); };
 document.getElementById("tRange").oninput = e => { state.t = +e.target.value; document.getElementById("tVal").textContent = state.t; renderMap(); };
 render();
 </script>

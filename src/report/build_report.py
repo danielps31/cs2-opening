@@ -7,12 +7,17 @@ most demos). Everyone on the other team in a demo counts as an enemy.
 """
 
 import argparse
+import base64
+import io
 import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from PIL import Image
+
+from src.config import map_radar
 from src.features.engineer import ZoneMapper, load_parsed
 
 BUY_LABELS = {0: "eco", 1: "force", 2: "full"}
@@ -42,7 +47,42 @@ def records(df: pd.DataFrame) -> list[dict]:
     return [{k: clean(v) for k, v in row.items()} for row in df.to_dict("records")]
 
 
-def build_payload(processed: Path, parsed: Path, me: str | None) -> dict:
+def radar_for(map_name: str, radar_dir: Path) -> dict | None:
+    """Radar image (as a data URL) + world-to-pixel transform, extracting from the game if needed."""
+    png = radar_dir / f"{map_name}.png"
+    overviews_path = radar_dir / "overviews.json"
+    if not png.exists():
+        try:
+            from src.data.radar import extract
+            extract([map_name], radar_dir)
+        except Exception as e:
+            print(f"{map_name}: no radar image ({e})")
+    if not png.exists():
+        return None
+    overviews = json.loads(overviews_path.read_text()) if overviews_path.exists() else {}
+    transform = overviews.get(map_name) or map_radar(map_name)
+    if not transform:
+        return None
+    img = Image.open(png).convert("RGBA")
+    buf = io.BytesIO()
+    img.save(buf, "WEBP", quality=80)
+    # Crop the view to the drawn part of the radar (some maps only fill the middle)
+    x0, y0, x1, y1 = img.getchannel("A").getbbox() or (0, 0, *img.size)
+    side = max(x1 - x0, y1 - y0) + 32
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    return {"image": "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode(),
+            "size": img.size[0], "view": [round(cx - side / 2), round(cy - side / 2), side], **transform}
+
+
+def callouts(traj: pd.DataFrame) -> list[list]:
+    """[place, x, y] at the median position of each nav place."""
+    named = traj[traj["last_place_name"].fillna("") != ""]
+    med = named.groupby("last_place_name").agg(X=("X", "median"), Y=("Y", "median"), n=("X", "size"))
+    med = med[med["n"] >= 5].sort_values("n", ascending=False)
+    return [[place, round(r.X), round(r.Y)] for place, r in med.iterrows()]
+
+
+def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path) -> dict:
     players = pd.read_parquet(processed / "players.parquet")
     teams = pd.read_parquet(processed / "teams.parquet")
     # steamid64 exceeds JS number precision, so it travels as a string
@@ -58,7 +98,9 @@ def build_payload(processed: Path, parsed: Path, me: str | None) -> dict:
     teams["team_label"] = [n or p for n, p in zip(teams["team_name"], teams["players"])]
 
     # Trajectory dots (every 2 s) for the movement map, coloured by the player's route
-    dots, centres = [], {}
+    roster = players.drop_duplicates("steamid")[["steamid", "name"]].reset_index(drop=True)
+    player_index = {sid: i for i, sid in enumerate(roster["steamid"])}
+    dots, centres, radars, places = [], {}, {}, {}
     route_of = players.set_index(["demo_id", "round_number", "steamid"])[["route", "side", "is_enemy", "buy"]]
     by_map: dict[str, list] = {}
     for meta_path in sorted(parsed.glob("*/meta.json")):
@@ -71,9 +113,12 @@ def build_payload(processed: Path, parsed: Path, me: str | None) -> dict:
         traj = pd.concat(frames)
         zones = ZoneMapper(map_name, traj)
         centres[map_name] = {k: [round(v[0]), round(v[1])] for k, v in zones.centres.items()}
+        places[map_name] = callouts(traj)
+        radars[map_name] = radar_for(map_name, radar_dir)
         traj = traj.join(route_of, on=["demo_id", "round_number", "steamid"], how="inner")
         traj["map_name"] = map_name
-        dots.append(traj[["map_name", "side", "route", "is_enemy", "buy", "t_seconds", "X", "Y"]])
+        traj["player"] = traj["steamid"].map(player_index)
+        dots.append(traj[["map_name", "side", "route", "is_enemy", "buy", "t_seconds", "X", "Y", "player"]])
     dots_df = pd.concat(dots)
     dots_df["X"] = dots_df["X"].round().astype(int)
     dots_df["Y"] = dots_df["Y"].round().astype(int)
@@ -95,6 +140,9 @@ def build_payload(processed: Path, parsed: Path, me: str | None) -> dict:
         "dots": dots_df.values.tolist(),
         "dot_columns": list(dots_df.columns),
         "centres": centres,
+        "radars": radars,
+        "places": places,
+        "roster": roster.values.tolist(),
     }
 
 
@@ -103,10 +151,11 @@ def main():
     ap.add_argument("--processed", default="data/processed")
     ap.add_argument("--parsed", default="data/parsed")
     ap.add_argument("--me", default=None, help="your steamid64 (default: auto-detect)")
+    ap.add_argument("--radar", default="data/radar", help="radar images (auto-extracted from CS2 if missing)")
     ap.add_argument("--output", default="reports/opening_report.html")
     args = ap.parse_args()
 
-    payload = build_payload(Path(args.processed), Path(args.parsed), args.me)
+    payload = build_payload(Path(args.processed), Path(args.parsed), args.me, Path(args.radar))
     html = TEMPLATE.read_text(encoding="utf-8").replace(
         "/*__DATA__*/null", json.dumps(payload, ensure_ascii=False, default=clean))
     out = Path(args.output)

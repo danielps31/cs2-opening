@@ -13,7 +13,9 @@ enemy CT setups, and each player's and team's habits.
   T strategy per round (`A rush`, `B execute`, `Default > B`, ...), most common opening lines
   (`TSpawn > TYard > OutsideA > AStairs > AMain > BombsiteA`) and a per-player table.
 - **As T:** enemy CT setups (`2A-1Mid-2B`), the thinnest site, each CT's usual position at 20 s.
-- **Per team**, a **movement map** drawn from player positions, and **opening kills** (who and where).
+- **Movement map** per map on the game's own radar image with callout names, filterable by side,
+  time (first N seconds) and a single player.
+- **Per team** and **per player** (Steam name, Steam ID, profile link), and **opening kills** (who and where).
 
 "You" are auto-detected as the player present in the most demos; everyone on the other team is an enemy.
 
@@ -35,7 +37,8 @@ pip install -r requirements.txt
 python -m src.data.collect --cs2-replays            # or --from-dir PATH / --urls urls.txt
 python -m src.data.demo_parser                      # data/raw/demos -> data/parsed
 python -m src.features.engineer                     # -> data/processed/{players,teams}.parquet
-python -m src.report.build_report                   # -> reports/opening_report.html
+python -m src.data.radar                            # radar images from your CS2 install -> data/radar
+python -m src.report.build_report                   # -> reports/opening_report.html (open #de_dust2 etc.)
 ```
 
 Optional:
@@ -65,6 +68,7 @@ src/
   data/collect.py          gather demos (CS2 replays folder, any folder, URLs)
   data/steam_api.py        Steam sharecodes + sharecode decoder
   data/demo_parser.py      demo -> rounds / players / trajectory (1 sample per second, 60 s)
+  data/radar.py            radar images + overview coordinates from the CS2 game files
   features/engineer.py     zones, routes, rushes, strategies, score/economy context
   features/schema.py       model features shared by training and the API
   report/                  HTML report builder + template
