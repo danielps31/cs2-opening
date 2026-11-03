@@ -94,7 +94,7 @@ input[type=range] { width: 200px; vertical-align: middle; }
         <div><div class="label">Match</div><select id="matchSel"></select></div>
         <div><div class="label">Ronde</div><select id="roundSel"></select></div>
         <div><div class="label">Sisi</div><div class="seg" id="sideSeg"></div></div>
-        <div><div class="label">Sampai detik ke-<b id="tVal">60</b></div><input type="range" id="tRange" min="2" max="60" step="2" value="60"></div>
+        <div><div class="label">Sampai detik ke-<b id="tVal">akhir ronde</b></div><input type="range" id="tRange" min="2" max="180" step="2" value="180"></div>
       </div>
       <label class="muted" style="font-size:12px"><input type="checkbox" id="calloutChk" checked> Nama callout</label>
       <div class="legend" id="mapLegend"></div>
@@ -157,7 +157,7 @@ const maps = [...new Set(DATA.teams.map(t => t.map_name))]
   .sort((a, b) => DATA.teams.filter(t => t.map_name === b).length - DATA.teams.filter(t => t.map_name === a).length);
 // Deep link: #<map>[/<match number on that map>[/<round>]], e.g. #de_anubis/2/5
 const [hashMap, hashMatch, hashRound] = decodeURIComponent(location.hash.slice(1)).split("/");
-const state = {map: maps.includes(hashMap) ? hashMap : maps[0], who: "enemy", buy: "all", side: "T", t: 60, player: "", callouts: true, match: "", round: ""};
+const state = {map: maps.includes(hashMap) ? hashMap : maps[0], who: "enemy", buy: "all", side: "T", t: Infinity, player: "", callouts: true, match: "", round: ""};
 if (hashMatch) state.match = (DATA.matches.filter(m => m.map_name === state.map)[+hashMatch - 1] || {}).demo_id || "";
 if (hashRound) state.round = hashRound;
 const PLAYER_COLORS = ["#ff6b6b", "#4dabf7", "#ffd43b", "#69db7c", "#da77f2", "#ff922b", "#3bc9db", "#f783ac", "#a9e34b", "#ced4da"];
@@ -353,14 +353,31 @@ function heatImage(pts, toX, toY, view) {
   return `<image href="${c.toDataURL()}" x="${view[0]}" y="${view[1]}" width="${view[2]}" height="${view[2]}"/>`;
 }
 
+// Slider range = longest round in the current selection; at the far right it means "until the round ends"
+function syncTimeSlider() {
+  const t = state.t;
+  state.t = Infinity;
+  const maxT = Math.max(2, ...mapPoints().map(d => d[DOT.t_seconds]));
+  state.t = t;
+  const range = document.getElementById("tRange");
+  range.max = Math.ceil(maxT / 2) * 2;
+  range.value = Math.min(state.t, +range.max);
+  document.getElementById("tVal").textContent = state.t >= maxT ? `akhir ronde (${Math.round(maxT)} dtk)` : state.t;
+}
+
 function renderMap() {
   const all = DATA.dots.filter(d => d[DOT.map_name] === state.map);
+  syncTimeSlider();
   const pts = mapPoints();
   let roundTxt = "Semua ronde" + (state.buy !== "all" ? ` · buy ${state.buy}` : "");
   if (state.round) {
     const buys = [...new Set(DATA.teams.filter(t => t.map_name === state.map && t.round_number === +state.round &&
       (!state.match || t.demo_id === state.match) && (state.who === "all" || t.is_enemy)).map(t => t.buy))];
     roundTxt = `Ronde ${state.round}` + (buys.length ? ` · musuh ${buys.join("/")}` : "");
+    const ends = DATA.teams.filter(t => t.map_name === state.map && t.round_number === +state.round &&
+      (!state.match || t.demo_id === state.match) && t.round_seconds != null).map(t => t.round_seconds);
+    if (ends.length) roundTxt += state.match ? ` · ronde selesai di detik ke-${Math.round(ends[0])}`
+                                             : ` · selesai di detik ke-${Math.round(Math.min(...ends))}–${Math.round(Math.max(...ends))}`;
   }
   document.getElementById("mapTitle").textContent = "· " + mapName(state.map) + " · " + roundTxt +
     (state.player ? " · " + nameOf[state.player] : "");
@@ -548,7 +565,10 @@ document.getElementById("matchSel").onchange = e => { state.match = e.target.val
 document.getElementById("roundSel").onchange = e => { state.round = e.target.value; renderMap(); renderRouteTable(); };
 document.getElementById("playerSel").onchange = e => { state.player = e.target.value; render(); };
 document.getElementById("calloutChk").onchange = e => { state.callouts = e.target.checked; renderMap(); };
-document.getElementById("tRange").oninput = e => { state.t = +e.target.value; document.getElementById("tVal").textContent = state.t; renderMap(); };
+document.getElementById("tRange").oninput = e => {
+  state.t = +e.target.value >= +e.target.max ? Infinity : +e.target.value;
+  renderMap();
+};
 render();
 </script>
 </body>

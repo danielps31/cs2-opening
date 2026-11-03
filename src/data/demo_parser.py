@@ -4,7 +4,7 @@ CS2 Demo Parser - Extract round-start data from .dem files.
 For every round it captures, at the moment freeze time ends:
   - rounds:     round_number, freeze_end_tick, end_tick, winner (T/CT)
   - players:    per-player snapshot (side, X/Y, money, equip value, place)
-and after freeze end, sampled once per second:
+and after freeze end, sampled once per second until the round ends:
   - trajectory: per-player X/Y/place/is_alive at t = 1..N seconds
 plus per round the bomb plant (site, time) and the opening kill.
 
@@ -72,7 +72,7 @@ class CS2DemoParser:
             raise FileNotFoundError(f"Demo file not found: {self.demo_path}")
         labels = model_config()["labels"]
         self.tick_rate = tick_rate or labels["tick_rate"]
-        self.max_seconds = max_seconds or labels["route_horizon_seconds"]
+        self.max_seconds = max_seconds or labels["trajectory_max_seconds"]
         self.parser = DemoParser(str(self.demo_path))
 
     @property

@@ -23,7 +23,8 @@ position_predictor:
 
 labels:
   tick_rate: 64
-  route_horizon_seconds: 60   # opening window after freeze end
+  route_horizon_seconds: 60   # opening window after freeze end (route labels)
+  trajectory_max_seconds: 180 # positions are kept until the round ends (1:55 + 40 s bomb timer)
   rush_seconds: 20            # a T player on a bombsite within this time = rush
   ct_setup_seconds: 20        # CT position at this time = their setup
   position_horizons_seconds: [5, 10, 15]

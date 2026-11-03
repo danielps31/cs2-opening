@@ -258,6 +258,8 @@ def build_demo_rows(parsed_dir: Path, zones: ZoneMapper) -> tuple[pd.DataFrame, 
             "first_kill_side": r["first_kill_side"],
             "first_kill_place": r["first_kill_place"],
             "first_kill_seconds": r["first_kill_seconds"],
+            "round_seconds": (r["end_tick"] - r["freeze_end_tick"]) / meta["tick_rate"]
+                             if pd.notna(r["end_tick"]) else None,
             **team_strategy(g, r["plant_site"]),
         })
     return df, pd.DataFrame(team_rows)

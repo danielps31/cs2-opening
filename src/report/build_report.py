@@ -150,7 +150,7 @@ def build_payload(processed: Path, parsed: Path, me: str | None, radar_dir: Path
 
     team_cols = ["demo_id", "map_name", "round_number", "side", "team_id", "team_label", "buy", "is_enemy",
                  "strategy", "n_A", "n_B", "n_Mid", "rushers", "rush_site", "plant_site", "won",
-                 "first_kill_side", "first_kill_place", "first_kill_seconds"]
+                 "first_kill_side", "first_kill_place", "first_kill_seconds", "round_seconds"]
     player_cols = ["demo_id", "map_name", "round_number", "side", "steamid", "name", "team_id", "buy",
                    "is_enemy", "route", "rush", "site_arrival_seconds", "opening_line"]
     return {
