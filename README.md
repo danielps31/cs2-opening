@@ -51,6 +51,7 @@ Older matches: fill `data/sharecodes.txt` with `python -m src.data.steam_api --k
 ```bash
 python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
+cd tools/steam_gc && npm install && cd ../..        # Node.js, for the Steam login
 
 python -m src.data.collect --cs2-replays            # or --from-dir PATH / --urls urls.txt
 python -m src.data.demo_parser                      # data/raw/demos -> data/parsed
