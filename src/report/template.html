@@ -66,6 +66,9 @@ table.routes td.cell { min-width: 120px; white-space: normal; font-size: 12px; l
 table.routes td.cell small { color: var(--muted); display: block; }
 table.routes th.rnd { cursor: pointer; text-align: center; }
 table.routes th.rnd:hover { color: var(--fg); }
+table.routes td.team-head { padding: 10px 8px 6px; font-weight: 700; border-bottom: 2px solid var(--border); }
+table.routes td.team-head > span { position: sticky; left: 8px; }
+table.routes td.team-head.ours { color: var(--mid); } table.routes td.team-head.enemy { color: #ef4444; }
 table.routes .sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 table.routes td.sticky, table.routes th.sticky { position: sticky; left: 0; background: var(--card); z-index: 1; }
 .wicon { display: inline-flex; align-items: center; gap: 4px; background: #23272e; color: #e8eaee; border-radius: 6px; padding: 2px 6px; margin: 2px 4px 2px 0; font-size: 12px; white-space: nowrap; }
@@ -589,13 +592,12 @@ function shortPath(line) {
 }
 
 function renderRouteTable() {
-  // With a player picked: them plus the enemy team of each of their matches. Sisi follows the picked
-  // player, so enemies show in the same rounds (on the other side).
-  const isEnemy = p => state.player && inScope(p.demo_id) && p.team_id !== playerTeam(p.demo_id);
-  const rows = DATA.players.filter(p => p.map_name === state.map && (!state.match || p.demo_id === state.match) && (
-    !state.player ? state.side === "all" || p.side === state.side
-    : p.steamid === state.player ? state.side === "all" || p.side === state.side
-    : isEnemy(p) && (state.side === "all" || p.side !== state.side)));
+  // Both teams of every match in view, split into blocks. With a player picked, Sisi follows their
+  // team, so the enemy block shows the same rounds from the other side.
+  const mine = p => state.player && p.team_id === playerTeam(p.demo_id);
+  const rows = DATA.players.filter(p => p.map_name === state.map && (!state.match || p.demo_id === state.match) &&
+    inScope(p.demo_id) && (state.side === "all" || !state.player || mine(p) ? state.side === "all" || p.side === state.side
+                                                                              : p.side !== state.side));
   const el = document.getElementById("routeTable");
   if (!rows.length) { el.innerHTML = `<p class="muted">Belum ada data untuk filter ini.</p>`; return; }
   const groups = new Map();
@@ -604,19 +606,31 @@ function renderRouteTable() {
     if (!groups.has(k)) groups.set(k, {demo: p.demo_id, sid: p.steamid, name: p.name, team: p.team_id, rounds: {}});
     groups.get(k).rounds[p.round_number] = p;
   });
-  const rank = g => g.sid === state.player ? 0 : 1;
-  const list = [...groups.values()].sort((a, b) => a.demo.localeCompare(b.demo) || rank(a) - rank(b) ||
-    a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
+  // Order: match, then your team before the enemy team, the picked player first
+  const teamRank = g => state.player ? (g.team === playerTeam(g.demo) ? 0 : 1) : 0;
+  const list = [...groups.values()].sort((a, b) => a.demo.localeCompare(b.demo) || teamRank(a) - teamRank(b) ||
+    a.team.localeCompare(b.team) || (b.sid === state.player) - (a.sid === state.player) || a.name.localeCompare(b.name));
   const roundCols = [...new Set(rows.map(p => p.round_number))].sort((a, b) => a - b);
   const multiMatch = new Set(list.map(g => g.demo)).size > 1;
   const matchOf = Object.fromEntries(DATA.matches.map(m => [m.demo_id, m]));
-  let html = `<table class="routes"><tr><th class="sticky">Pemain</th>${multiMatch ? "<th>Match</th>" : ""}`;
+  const teamTitle = g => {
+    if (state.player) return g.team === playerTeam(g.demo) ? `Tim kamu · ${nameOf[state.player]}` : "Tim musuh";
+    const named = DATA.teams.find(t => t.demo_id === g.demo && t.team_id === g.team);
+    return `Tim ${named && named.team_label ? named.team_label.split(", ")[0] + " dkk." : ""}`;
+  };
+  let html = `<table class="routes"><tr><th class="sticky">Pemain</th>`;
   for (const r of roundCols) html += `<th class="rnd ${String(r) === state.round ? "sel" : ""}" data-round="${r}">R${r}</th>`;
   html += "</tr>";
+  let block = "";
   for (const g of list) {
-    const tag = !state.player ? "" : g.sid === state.player ? ` <span class="rt Mid" style="font-weight:600">dipilih</span>` : ` <span class="rt unknown" style="font-weight:600">musuh</span>`;
+    if (g.demo + g.team !== block) {
+      block = g.demo + g.team;
+      const enemyBlock = state.player && g.team !== playerTeam(g.demo);
+      html += `<tr><td class="team-head ${enemyBlock ? "enemy" : "ours"}" colspan="${roundCols.length + 1}"><span>${esc(teamTitle(g))}` +
+        `${multiMatch ? ` <span class="muted">· ${esc(matchLabel(matchOf[g.demo]))}</span>` : ""}</span></td></tr>`;
+    }
+    const tag = g.sid === state.player ? ` <span class="rt Mid" style="font-weight:600">dipilih</span>` : "";
     html += `<tr><td class="sticky">${steamLink(g.sid, g.name)}${tag}<div class="muted" style="font-size:11px">${esc(g.sid)}</div></td>`;
-    if (multiMatch) html += `<td class="muted" style="font-size:12px">${esc(matchLabel(matchOf[g.demo]))}</td>`;
     for (const r of roundCols) {
       const p = g.rounds[r];
       const sel = String(r) === state.round ? " sel" : "";
