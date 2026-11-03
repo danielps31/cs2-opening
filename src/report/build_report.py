@@ -45,6 +45,8 @@ def records(df: pd.DataFrame) -> list[dict]:
 def build_payload(processed: Path, parsed: Path, me: str | None) -> dict:
     players = pd.read_parquet(processed / "players.parquet")
     teams = pd.read_parquet(processed / "teams.parquet")
+    # steamid64 exceeds JS number precision, so it travels as a string
+    players["steamid"] = players["steamid"].astype(str)
     me = me or detect_me(players)
     me_name = players.loc[players["steamid"] == me, "name"].iloc[0] if (players["steamid"] == me).any() else me
 
@@ -63,6 +65,7 @@ def build_payload(processed: Path, parsed: Path, me: str | None) -> dict:
         meta, _, _, traj = load_parsed(meta_path.parent)
         traj = traj[(traj["t_seconds"] % 2 == 0) & traj["is_alive"].astype(bool)].copy()
         traj["demo_id"] = meta["demo_id"]
+        traj["steamid"] = traj["steamid"].astype(str)
         by_map.setdefault(meta["map_name"], []).append(traj)
     for map_name, frames in by_map.items():
         traj = pd.concat(frames)
