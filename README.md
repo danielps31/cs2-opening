@@ -21,7 +21,18 @@ enemy CT setups, and each player's and team's habits.
 
 ## Where the data comes from
 
-**Your Steam account (recommended):**
+**Your Steam account (recommended): the local app**
+
+```bash
+python -m src.app
+```
+
+Opens `http://127.0.0.1:8765/login` in your browser. Log in with a QR code (Steam Mobile app) or with
+account name + password + Steam Guard code; the password goes straight to Steam and is never stored.
+After login the app fetches your recent matches, downloads the demos, rebuilds the report and serves it
+at `http://127.0.0.1:8765/`. The server only listens on this computer.
+
+Terminal alternative:
 
 ```bash
 python -m src.pipeline

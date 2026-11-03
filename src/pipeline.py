@@ -3,9 +3,10 @@
     python -m src.pipeline            # Steam (QR login on first run) + CS2 replays folder -> report
     python -m src.pipeline --no-steam # only demos already on disk
     python -m src.pipeline --no-steam --gcpd "C:/Users/you/Downloads/Personal Game Data.html"
+    python -m src.pipeline --no-steam --urls data/demo_urls.txt
 
-Your steamid comes from the Steam login (data/steam_account.json), so the
-report treats everyone on the other team as the enemy.
+The report opens on your steamid (from the Steam login, data/steam_account.json, or --me).
+For a login page in the browser, use `python -m src.app`.
 """
 
 import argparse
@@ -26,15 +27,22 @@ DEMOS = DATA / "raw" / "demos"
 STEAM_TOOL = ROOT / "tools" / "steam_gc"
 
 
-def fetch_from_steam() -> None:
+def ensure_node_tool() -> None:
     if not (STEAM_TOOL / "node_modules").exists():
         subprocess.run(["npm", "install", "--silent"], cwd=STEAM_TOOL, check=True, shell=sys.platform == "win32")
-    # Inherits the terminal so the QR code shows up on first login
-    subprocess.run(["node", str(STEAM_TOOL / "fetch_demo_urls.js")], check=True)
-    urls_file = DATA / "demo_urls.txt"
+
+
+def download_url_file(urls_file: Path) -> None:
     urls = [u.strip() for u in urls_file.read_text().splitlines() if u.strip()] if urls_file.exists() else []
     print(f"Downloading {len(urls)} demos (already downloaded ones are skipped)...")
     collect.download_urls(urls, DEMOS)
+
+
+def fetch_from_steam() -> None:
+    ensure_node_tool()
+    # Inherits the terminal so the QR code shows up on first login
+    subprocess.run(["node", str(STEAM_TOOL / "fetch_demo_urls.js")], check=True)
+    download_url_file(DATA / "demo_urls.txt")
 
 
 def my_steamid() -> str | None:
@@ -47,6 +55,7 @@ def main():
     ap.add_argument("--no-steam", action="store_true", help="skip the Steam download")
     ap.add_argument("--no-replays", action="store_true", help="skip the CS2 replays folder")
     ap.add_argument("--me", default=None, help="your steamid64 (default: from the Steam login)")
+    ap.add_argument("--urls", type=Path, help="text file with demo URLs to download (e.g. from the login page)")
     ap.add_argument("--gcpd", type=Path, action="append", default=[],
                     help="saved Steam Personal Game Data page(s) with your match history")
     args = ap.parse_args()
@@ -55,6 +64,8 @@ def main():
 
     if not args.no_steam:
         fetch_from_steam()
+    if args.urls:
+        download_url_file(args.urls)
     for page in args.gcpd:
         urls = collect.gcpd_demo_urls(page)
         print(f"{len(urls)} replay links in {page.name} (expired ones are skipped)")

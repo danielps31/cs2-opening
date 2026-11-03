@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steam Login</title>
+<style>
+:root { --bg: #f6f7f9; --card: #fff; --fg: #1b1e24; --muted: #667085; --border: #e3e6eb; --accent: #6d5dfc; --ok: #22a06b; --err: #d64545; --code-bg: #f0f2f5; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0f1115; --card: #181b21; --fg: #e8eaee; --muted: #9aa3b2; --border: #2a2f38; --code-bg: #11141a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 22px; margin: 0; } h2 { font-size: 16px; margin: 0 0 8px; }
+.muted { color: var(--muted); }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.grid .card { margin-top: 0; }
+button.btn, a.btn { display: inline-block; border: 0; border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: #fff; text-decoration: none; }
+button.btn.secondary, a.btn.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+button.btn:disabled { opacity: .5; cursor: default; }
+input[type=text], input[type=password] { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; margin: 4px 0 10px; }
+label { font-size: 12px; color: var(--muted); }
+.qr { display: block; margin: 12px auto; background: #fff; padding: 8px; border-radius: 8px; width: 260px; max-width: 100%; }
+.status { padding: 10px 12px; border-radius: 8px; background: var(--code-bg); margin-top: 10px; }
+.status.ok { color: var(--ok); } .status.err { color: var(--err); }
+pre { background: var(--code-bg); border-radius: 8px; padding: 10px; max-height: 320px; overflow: auto; font-size: 12px; white-space: pre-wrap; margin: 10px 0 0; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.lang { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--card); }
+.lang button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--fg); padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; }
+.lang button svg { width: 22px; height: 15px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,.25); display: block; }
+.lang button.on { background: var(--accent); color: #fff; }
+ol { margin: 6px 0 0; padding-left: 20px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1 data-i18n="title"></h1>
+    <div class="row" style="margin:0">
+      <a class="btn secondary" href="/" id="reportLink" data-i18n="openReport"></a>
+      <div class="lang" id="langSeg">
+        <button data-lang="id" title="Bahasa Indonesia"><svg viewBox="0 0 3 2" aria-hidden="true"><rect width="3" height="1" fill="#CE1126"/><rect y="1" width="3" height="1" fill="#fff"/></svg>ID</button>
+        <button data-lang="en" title="English"><svg viewBox="0 0 60 30" aria-hidden="true"><clipPath id="ukc"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath><path d="M0,0 v30 h60 v-30 z" fill="#012169"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/><path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#ukc)" stroke="#C8102E" stroke-width="4"/><path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/><path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/></svg>EN</button>
+      </div>
+    </div>
+  </div>
+  <p class="muted" data-i18n="intro"></p>
+
+  <!-- Logged in -->
+  <div class="card" id="accountCard" hidden>
+    <h2 data-i18n="loggedInTitle"></h2>
+    <div id="accountText"></div>
+    <div class="row">
+      <button class="btn" id="syncBtn" data-i18n="syncBtn"></button>
+      <button class="btn secondary" id="logoutBtn" data-i18n="logoutBtn"></button>
+    </div>
+    <p class="muted" style="margin:10px 0 0;font-size:12px" data-i18n="syncNote"></p>
+  </div>
+
+  <!-- Not logged in -->
+  <div class="grid" id="loginCards" style="margin-top:16px">
+    <div class="card">
+      <h2 data-i18n="qrTitle"></h2>
+      <ol class="muted"><li data-i18n="qrStep1"></li><li data-i18n="qrStep2"></li><li data-i18n="qrStep3"></li></ol>
+      <div class="row"><button class="btn" id="qrBtn" data-i18n="qrBtn"></button></div>
+      <img class="qr" id="qrImg" alt="QR" hidden>
+      <div class="status" id="qrStatus" hidden></div>
+    </div>
+    <div class="card">
+      <h2 data-i18n="pwTitle"></h2>
+      <form id="pwForm" autocomplete="on">
+        <label for="user" data-i18n="username"></label>
+        <input type="text" id="user" autocomplete="username" required>
+        <label for="pass" data-i18n="password"></label>
+        <input type="password" id="pass" autocomplete="current-password" required>
+        <button class="btn" type="submit" data-i18n="pwBtn"></button>
+      </form>
+      <form id="codeForm" hidden>
+        <label for="code" id="codeLabel"></label>
+        <input type="text" id="code" inputmode="text" autocomplete="one-time-code" required>
+        <button class="btn" type="submit" data-i18n="codeBtn"></button>
+      </form>
+      <div class="status" id="pwStatus" hidden></div>
+      <p class="muted" style="margin:10px 0 0;font-size:12px" data-i18n="pwNote"></p>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="card" id="jobCard" hidden>
+    <h2 data-i18n="jobTitle"></h2>
+    <div class="status" id="jobStatus"></div>
+    <pre id="jobLog"></pre>
+    <div class="row" id="jobDone" hidden><a class="btn" href="/" data-i18n="openReport"></a></div>
+  </div>
+</div>
+
+<script>
+const I18N = {
+  id: {
+    title: "Login Steam", openReport: "Buka laporan →",
+    intro: "Login dengan akun Steam-mu untuk mengambil match CS2 terbaru (daftar Watch > Your Matches), mengunduh demonya, lalu membuat ulang laporan.",
+    loggedInTitle: "Sudah login", account: id => `Akun Steam ID <b>${id}</b>`, noAccount: "Login tersimpan.",
+    syncBtn: "Ambil match terbaru", logoutBtn: "Logout",
+    syncNote: "Tutup CS2 dulu sebelum mengambil match. Steam hanya memberi 8 match terakhir, dan Valve menyimpan file demo hanya beberapa minggu, jadi ambil secara rutin.",
+    qrTitle: "Login pakai QR (disarankan)", qrStep1: "Buka aplikasi Steam di HP.", qrStep2: "Ketuk ikon Steam Guard, lalu Scan QR code.",
+    qrStep3: "Arahkan ke QR di bawah dan setujui login.", qrBtn: "Tampilkan QR",
+    qrWaiting: "Menunggu QR di-scan…", qrScanned: "QR sudah di-scan. Setujui login di aplikasi Steam.",
+    pwTitle: "Login pakai username & password", username: "Nama akun Steam (bukan nama profil)", password: "Password", pwBtn: "Login",
+    codeBtn: "Kirim kode", codeDevice: "Kode Steam Guard dari aplikasi Steam di HP", codeEmail: d => `Kode Steam Guard yang dikirim ke email @${d || ""}`,
+    confirmApp: "Setujui login di aplikasi Steam Mobile atau lewat email.",
+    pwNote: "Password langsung dikirim ke Steam dan tidak disimpan. Yang disimpan hanya token login di data/steam_refresh_token.txt di komputer ini.",
+    loggingIn: "Sedang login…", loginOk: "Login berhasil.", loginErr: e => `Login gagal: ${e}`, timeout: "Waktu habis, coba lagi.",
+    jobTitle: "Mengambil data", jobRunning: "Sedang berjalan… (bisa beberapa menit, tergantung jumlah demo)",
+    jobDone: "Selesai. Laporan sudah diperbarui.", jobError: "Ada error, lihat log di bawah.",
+  },
+  en: {
+    title: "Steam login", openReport: "Open report →",
+    intro: "Log in with your Steam account to fetch your latest CS2 matches (the Watch > Your Matches list), download their demos and rebuild the report.",
+    loggedInTitle: "Logged in", account: id => `Steam ID <b>${id}</b>`, noAccount: "Login saved.",
+    syncBtn: "Fetch latest matches", logoutBtn: "Log out",
+    syncNote: "Close CS2 before fetching. Steam only gives the last 8 matches and Valve keeps demo files for a few weeks, so fetch regularly.",
+    qrTitle: "Log in with a QR code (recommended)", qrStep1: "Open the Steam app on your phone.", qrStep2: "Tap the Steam Guard icon, then Scan a QR code.",
+    qrStep3: "Point it at the QR below and approve the login.", qrBtn: "Show QR",
+    qrWaiting: "Waiting for the QR to be scanned…", qrScanned: "QR scanned. Approve the login in the Steam app.",
+    pwTitle: "Log in with username & password", username: "Steam account name (not your profile name)", password: "Password", pwBtn: "Log in",
+    codeBtn: "Send code", codeDevice: "Steam Guard code from the Steam app on your phone", codeEmail: d => `Steam Guard code sent to your @${d || ""} email`,
+    confirmApp: "Approve the login in the Steam Mobile app or by email.",
+    pwNote: "Your password goes straight to Steam and is not stored. Only a login token is kept in data/steam_refresh_token.txt on this computer.",
+    loggingIn: "Logging in…", loginOk: "Logged in.", loginErr: e => `Login failed: ${e}`, timeout: "Timed out, try again.",
+    jobTitle: "Fetching data", jobRunning: "Running… (can take a few minutes, depending on the number of demos)",
+    jobDone: "Done. The report has been updated.", jobError: "Something went wrong, see the log below.",
+  },
+};
+let lang = "id";
+try { lang = localStorage.getItem("cs2-opening-lang") === "en" ? "en" : "id"; } catch (e) {}
+const t = (k, ...a) => { const v = I18N[lang][k] ?? k; return typeof v === "function" ? v(...a) : v; };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+let last = null;
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach(el => el.textContent = t(el.dataset.i18n));
+  document.querySelectorAll("#langSeg button").forEach(b => b.classList.toggle("on", b.dataset.lang === lang));
+  if (last) show(last);
+}
+$("langSeg").onclick = e => {
+  const b = e.target.closest("button[data-lang]");
+  if (!b) return;
+  lang = b.dataset.lang;
+  try { localStorage.setItem("cs2-opening-lang", lang); } catch (err) {}
+  applyLang();
+};
+
+const api = (path, body) => fetch(path, {
+  method: body === undefined ? "GET" : "POST",
+  headers: body === undefined ? {} : {"Content-Type": "application/json", "X-CS2-Opening": "1"},
+  body: body === undefined ? undefined : JSON.stringify(body),
+}).then(r => r.json());
+
+function setStatus(el, text, cls) {
+  el.hidden = !text;
+  el.className = "status" + (cls ? " " + cls : "");
+  el.textContent = text || "";
+}
+
+function show(s) {
+  last = s;
+  $("accountCard").hidden = !s.loggedIn;
+  $("loginCards").hidden = s.loggedIn;
+  $("reportLink").hidden = !s.reportReady;
+  if (s.loggedIn) $("accountText").innerHTML = s.account ? t("account", esc(s.account.steamid)) : t("noAccount");
+
+  const L = s.login;
+  $("qrImg").hidden = !(L.state === "qr" && L.qr);
+  if (L.qr) $("qrImg").src = L.qr;
+  const qrText = L.state === "qr" ? t("qrWaiting") : L.state === "scanned" ? t("qrScanned") : "";
+  setStatus($("qrStatus"), qrText);
+
+  const codeNeeded = L.state === "code";
+  $("codeForm").hidden = !codeNeeded;
+  $("pwForm").hidden = codeNeeded || L.state === "confirm";
+  if (codeNeeded) $("codeLabel").textContent = L.codeType === "email" ? t("codeEmail", L.detail) : t("codeDevice");
+  const pwText = L.state === "confirm" ? t("confirmApp") : L.state === "error" ? t("loginErr", L.error === "timeout" ? t("timeout") : L.error)
+    : L.state === "done" ? t("loginOk") : "";
+  setStatus($("pwStatus"), pwText, L.state === "error" ? "err" : L.state === "done" ? "ok" : "");
+
+  const J = s.job;
+  $("jobCard").hidden = J.state === "idle";
+  $("syncBtn").disabled = J.state === "running";
+  setStatus($("jobStatus"), J.state === "running" ? t("jobRunning") : J.state === "done" ? t("jobDone") : J.state === "error" ? t("jobError") : "",
+    J.state === "done" ? "ok" : J.state === "error" ? "err" : "");
+  const log = $("jobLog"), atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+  log.textContent = J.log.join("\n");
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  $("jobDone").hidden = J.state !== "done";
+}
+
+const poll = () => api("/api/status").then(show).catch(() => {}).finally(() => setTimeout(poll, 1500));
+
+$("qrBtn").onclick = () => { setStatus($("qrStatus"), t("qrWaiting")); api("/api/login/qr", {}); };
+$("pwForm").onsubmit = e => {
+  e.preventDefault();
+  setStatus($("pwStatus"), t("loggingIn"));
+  api("/api/login/password", {username: $("user").value, password: $("pass").value});
+  $("pass").value = "";
+};
+$("codeForm").onsubmit = e => {
+  e.preventDefault();
+  api("/api/login/code", {code: $("code").value}).then(r => { if (!r.ok) setStatus($("pwStatus"), t("loginErr", r.error), "err"); });
+  $("code").value = "";
+};
+$("syncBtn").onclick = () => api("/api/sync", {});
+$("logoutBtn").onclick = () => api("/api/logout", {});
+
+applyLang();
+poll();
+</script>
+</body>
+</html>

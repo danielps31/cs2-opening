@@ -25,6 +25,9 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .lang button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--fg); padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; }
 .lang button svg { width: 22px; height: 15px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,.25); display: block; }
 .lang button.on { background: var(--accent); color: #fff; }
+.loginlink { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 8px; background: #171a21; color: #fff;
+  text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid #2a475e; }
+.loginlink svg { width: 18px; height: 18px; }
 h2 { font-size: 17px; margin: 0 0 12px; }
 h3 { font-size: 14px; margin: 16px 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .sub { color: var(--muted); margin: 0 0 16px; }
@@ -97,9 +100,12 @@ input[type=range] { width: 200px; vertical-align: middle; }
 <div class="wrap">
   <div class="topbar">
     <h1>CS2 Opening Report</h1>
+    <div style="display:flex;gap:8px;align-items:center">
+    <a class="loginlink" id="loginLink" href="/login" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-9.96 9.1l5.36 2.2a2.8 2.8 0 0 1 1.6-.5h.15l2.38-3.45v-.05a3.77 3.77 0 1 1 3.77 3.77h-.09l-3.4 2.42v.13a2.83 2.83 0 0 1-5.6.56L2.4 14.6A10 10 0 1 0 12 2Zm-4.7 15.2-1.23-.5a2.12 2.12 0 1 0 1.16-2.9l1.27.52a1.56 1.56 0 1 1-1.2 2.88Zm9.64-7.85a2.51 2.51 0 1 0-2.51 2.5 2.51 2.51 0 0 0 2.51-2.5Zm-4.39 0a1.89 1.89 0 1 1 1.89 1.88 1.89 1.89 0 0 1-1.89-1.88Z"/></svg><span data-i18n="steamLogin"></span></a>
     <div class="lang" id="langSeg" role="group" aria-label="Bahasa / Language">
       <button data-lang="id" title="Bahasa Indonesia"><svg viewBox="0 0 3 2" aria-hidden="true"><rect width="3" height="1" fill="#CE1126"/><rect y="1" width="3" height="1" fill="#fff"/></svg>ID</button>
       <button data-lang="en" title="English"><svg viewBox="0 0 60 30" aria-hidden="true"><clipPath id="ukc"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath><path d="M0,0 v30 h60 v-30 z" fill="#012169"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/><path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#ukc)" stroke="#C8102E" stroke-width="4"/><path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/><path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/></svg>EN</button>
+    </div>
     </div>
   </div>
   <p class="sub" id="summary"></p>
@@ -183,7 +189,7 @@ const DATA = /*__DATA__*/null;
 // UI text in Indonesian and English; entries with parameters are functions
 const I18N = {
   id: {
-    playerLabel: "Pemain (nama Steam · Steam ID)", mapLabel: "Map", movementTitle: "Peta pergerakan", matchLabel: "Match",
+    steamLogin: "Login Steam", playerLabel: "Pemain (nama Steam · Steam ID)", mapLabel: "Map", movementTitle: "Peta pergerakan", matchLabel: "Match",
     roundLabel: "Ronde", sideLabel: "Sisi", untilSecond: "Sampai detik ke-", callouts: "Nama callout",
     routesTitle: "Rute per ronde", routesHint: "· klik nomor ronde untuk melihatnya di peta", killsTitle: "Kill per senjata",
     bodyTitle: "Bagian badan yang kena", tStratTitle: "Strategi tim T", tCountsTitle: "Jumlah pemain per site (per ronde)",
@@ -224,7 +230,7 @@ const I18N = {
     sideAll: "Semua", hitDealt: "Tembakan dia", hitTaken: "Dia kena",
   },
   en: {
-    playerLabel: "Player (Steam name · Steam ID)", mapLabel: "Map", movementTitle: "Movement map", matchLabel: "Match",
+    steamLogin: "Steam login", playerLabel: "Player (Steam name · Steam ID)", mapLabel: "Map", movementTitle: "Movement map", matchLabel: "Match",
     roundLabel: "Round", sideLabel: "Side", untilSecond: "Up to second ", callouts: "Callout names",
     routesTitle: "Route per round", routesHint: "· click a round number to show it on the map", killsTitle: "Kills per weapon",
     bodyTitle: "Body parts hit", tStratTitle: "T team strategy", tCountsTitle: "Players per site (per round)",
@@ -825,7 +831,9 @@ document.getElementById("langSeg").onclick = e => {
   if (!b || b.dataset.lang === lang) return;
   lang = b.dataset.lang;
   try { localStorage.setItem("cs2-opening-lang", lang); } catch (err) {}
-  applyLang();
+  // The login page only exists when the report is served by the local app (python -m src.app)
+document.getElementById("loginLink").hidden = !location.protocol.startsWith("http");
+applyLang();
   render();
 };
 applyLang();
