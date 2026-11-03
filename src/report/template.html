@@ -316,7 +316,9 @@ function mapPoints() {
   const matchIdx = state.match ? DATA.matches.findIndex(m => m.demo_id === state.match) : -1;
   return DATA.dots.filter(d => d[idx.map_name] === state.map && d[idx.t_seconds] <= state.t &&
     (state.side === "all" || d[idx.side] === state.side) &&
-    (state.who === "all" || d[idx.is_enemy]) && (state.buy === "all" || d[idx.buy] === state.buy) &&
+    (state.who === "all" || d[idx.is_enemy]) &&
+    // A chosen round has its own buy type, so the buy filter only narrows the all-rounds heatmap
+    (state.round || state.buy === "all" || d[idx.buy] === state.buy) &&
     (!state.player || DATA.roster[d[idx.player]][0] === state.player) &&
     (matchIdx < 0 || d[idx.match] === matchIdx) &&
     (!state.round || d[idx.round_number] === +state.round));
@@ -354,7 +356,12 @@ function heatImage(pts, toX, toY, view) {
 function renderMap() {
   const all = DATA.dots.filter(d => d[DOT.map_name] === state.map);
   const pts = mapPoints();
-  const roundTxt = state.round ? `Ronde ${state.round}` : "Semua ronde";
+  let roundTxt = "Semua ronde" + (state.buy !== "all" ? ` · buy ${state.buy}` : "");
+  if (state.round) {
+    const buys = [...new Set(DATA.teams.filter(t => t.map_name === state.map && t.round_number === +state.round &&
+      (!state.match || t.demo_id === state.match) && (state.who === "all" || t.is_enemy)).map(t => t.buy))];
+    roundTxt = `Ronde ${state.round}` + (buys.length ? ` · musuh ${buys.join("/")}` : "");
+  }
   document.getElementById("mapTitle").textContent = "· " + mapName(state.map) + " · " + roundTxt +
     (state.player ? " · " + nameOf[state.player] : "");
   if (!all.length) { document.getElementById("mapSvg").innerHTML = ""; return; }
@@ -403,8 +410,15 @@ function renderMap() {
         <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="${(w * 2.2).toFixed(1)}" fill="${col}" stroke="#000" stroke-width="${(w / 2).toFixed(1)}"/>
         <text class="callout" x="${(ex + w * 3).toFixed(0)}" y="${(ey - w * 2).toFixed(0)}" style="font-size:${fs.toFixed(0)}px;fill:${col}">${esc(DATA.roster[seq[0][DOT.player]][1])}</text>`;
     }
-    legend = [...colorOf].map(([p, col]) => `<span><i style="background:${col}"></i>${esc(DATA.roster[p][1])}</span>`).join("") ||
-      `<span>Tidak ada pemain untuk filter ini di ronde ${state.round}.</span>`;
+    legend = [...colorOf].map(([p, col]) => `<span><i style="background:${col}"></i>${esc(DATA.roster[p][1])}</span>`).join("");
+    if (!legend) {
+      const side = state.side;
+      state.side = "all";
+      const sides = [...new Set(mapPoints().map(d => d[DOT.side]))];
+      state.side = side;
+      legend = `<span>Tidak ada pemain untuk filter ini di ronde ${state.round}.` +
+        (sides.length && side !== "all" ? ` Di ronde ini ${state.who === "enemy" ? "musuh" : "pemain"} ada di sisi ${sides.join(" & ")}, ganti Sisi ke ${sides[0]} atau Semua.` : "") + `</span>`;
+    }
   }
   document.getElementById("mapLegend").innerHTML = legend;
   const labels = state.callouts ? placeCallouts(DATA.places[state.map] || [], px, py, view[2] / 60) : "";
@@ -443,7 +457,7 @@ function shortPath(line) {
 function renderRouteTable() {
   const rows = DATA.players.filter(p => p.map_name === state.map && (!state.match || p.demo_id === state.match) &&
     (state.side === "all" || p.side === state.side) && (state.who === "all" || p.is_enemy) &&
-    (state.buy === "all" || p.buy === state.buy) && (!state.player || p.steamid === state.player));
+    (!state.player || p.steamid === state.player));
   const el = document.getElementById("routeTable");
   if (!rows.length) { el.innerHTML = `<p class="muted">Belum ada data untuk filter ini.</p>`; return; }
   const groups = new Map();
@@ -468,11 +482,11 @@ function renderRouteTable() {
       if (!p) { html += `<td class="cell${sel}"></td>`; continue; }
       const route = p.route === "unknown" ? "?" : p.route;
       html += `<td class="cell${sel}"><span class="muted">${p.side}</span> <span class="rt ${esc(p.route)}">${esc(route)}</span>${p.rush ? " ⚡" : ""}` +
-        `<small>${esc(shortPath(p.opening_line)) || "-"}</small></td>`;
+        `<small>${esc(shortPath(p.opening_line)) || "-"}</small><small>${esc(p.buy)}</small></td>`;
     }
     html += "</tr>";
   }
-  el.innerHTML = html + `</table><p class="muted" style="font-size:12px;margin:8px 0 0">T = tujuan pertama dalam 60 detik, CT = posisi di detik ke-20. ⚡ = rush (sampai site ≤20 detik).</p>`;
+  el.innerHTML = html + `</table><p class="muted" style="font-size:12px;margin:8px 0 0">T = tujuan pertama dalam 60 detik, CT = posisi di detik ke-20. ⚡ = rush (sampai site ≤20 detik). Baris terakhir tiap sel = tipe buy ronde itu.</p>`;
   el.querySelectorAll("th.rnd").forEach(th => th.onclick = () => {
     state.round = state.round === th.dataset.round ? "" : th.dataset.round;
     renderMatchPickers(); renderMap(); renderRouteTable();
