@@ -2,8 +2,8 @@
 __pycache__/
 .pytest_cache/
 .env
-data/
-models/
-reports/
+/data/
+/models/
+/reports/
 *.dem
 *.dem.bz2
