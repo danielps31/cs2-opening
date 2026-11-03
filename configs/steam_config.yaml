@@ -1,0 +1,17 @@
+steam_api:
+  base_url: https://api.steampowered.com
+  endpoints:
+    match_history: /IDOTA2Match_570/GetMatchHistory/v1  # placeholder
+    player_stats: /ISteamUserStats/GetUserStatsForGame/v2
+    player_summary: /ISteamUser/GetPlayerSummaries/v2
+    recent_matches: /ICSGOPlayers_730/GetNextMatchSharingCode/v1
+  cs2_app_id: 730
+  rate_limit:
+    requests_per_minute: 100
+    retry_delay_seconds: 5
+    max_retries: 3
+
+demo_download:
+  output_dir: data/raw/demos/
+  max_concurrent: 3
+  timeout_seconds: 300

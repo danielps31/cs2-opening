@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS2 Movement Predictor — ERD</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  svg { display: block; }
+  text { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  .entity-box { fill: var(--card, #1c1c1e); stroke: var(--border, #3a3a3c); stroke-width: 1.5; rx: 6; }
+  .entity-header { fill: var(--accent, #6366f1); rx: 6; }
+  .header-text { fill: #fff; font-size: 13px; font-weight: 600; letter-spacing: 0.5px; }
+  .col-text { fill: var(--foreground, #e5e5e7); font-size: 11.5px; }
+  .col-type { fill: var(--muted-foreground, #8e8e93); font-size: 10.5px; }
+  .pk { fill: var(--accent, #6366f1); font-size: 10px; font-weight: 700; }
+  .fk { fill: #f59e0b; font-size: 10px; font-weight: 700; }
+  .rel-line { stroke: var(--muted-foreground, #8e8e93); stroke-width: 1.2; fill: none; }
+  .rel-label { fill: var(--muted-foreground, #8e8e93); font-size: 9.5px; }
+  .title-text { fill: var(--foreground, #e5e5e7); font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+  .subtitle-text { fill: var(--muted-foreground, #8e8e93); font-size: 11px; }
+  marker polygon { fill: var(--muted-foreground, #8e8e93); }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1100 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <polygon points="0,1 10,5 0,9" />
+    </marker>
+    <marker id="one" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <line x1="0" y1="1" x2="0" y2="9" stroke="var(--muted-foreground, #8e8e93)" stroke-width="2"/>
+    </marker>
+    <marker id="many" viewBox="0 0 14 10" refX="14" refY="5" markerWidth="10" markerHeight="10" orient="auto">
+      <polyline points="0,5 14,1" stroke="var(--muted-foreground, #8e8e93)" stroke-width="1.2" fill="none"/>
+      <polyline points="0,5 14,9" stroke="var(--muted-foreground, #8e8e93)" stroke-width="1.2" fill="none"/>
+      <polyline points="0,5 14,5" stroke="var(--muted-foreground, #8e8e93)" stroke-width="1.2" fill="none"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="20" y="32" class="title-text">Entity Relationship Diagram</text>
+  <text x="20" y="50" class="subtitle-text">CS2 Movement Predictor — Data Model</text>
+
+  <!-- ============ MATCHES ============ -->
+  <g transform="translate(30, 80)">
+    <rect class="entity-box" width="200" height="175" />
+    <rect class="entity-header" width="200" height="30" />
+    <text x="100" y="20" text-anchor="middle" class="header-text">matches</text>
+    <text x="12" y="50" class="pk">PK</text><text x="32" y="50" class="col-text">match_id</text><text x="160" y="50" class="col-type">UUID</text>
+    <text x="32" y="72" class="col-text">map_name</text><text x="160" y="72" class="col-type">VARCHAR</text>
+    <text x="32" y="94" class="col-text">match_date</text><text x="160" y="94" class="col-type">TIMESTAMP</text>
+    <text x="32" y="116" class="col-text">demo_url</text><text x="160" y="116" class="col-type">TEXT</text>
+    <text x="32" y="138" class="col-text">server_tick_rate</text><text x="160" y="138" class="col-type">INT</text>
+    <text x="32" y="160" class="col-text">duration_seconds</text><text x="160" y="160" class="col-type">INT</text>
+  </g>
+
+  <!-- ============ ROUNDS ============ -->
+  <g transform="translate(30, 310)">
+    <rect class="entity-box" width="200" height="197" />
+    <rect class="entity-header" width="200" height="30" />
+    <text x="100" y="20" text-anchor="middle" class="header-text">rounds</text>
+    <text x="12" y="50" class="pk">PK</text><text x="32" y="50" class="col-text">round_id</text><text x="160" y="50" class="col-type">UUID</text>
+    <text x="12" y="72" class="fk">FK</text><text x="32" y="72" class="col-text">match_id</text><text x="160" y="72" class="col-type">UUID</text>
+    <text x="32" y="94" class="col-text">round_number</text><text x="160" y="94" class="col-type">INT</text>
+    <text x="32" y="116" class="col-text">winner_side</text><text x="160" y="116" class="col-type">ENUM</text>
+    <text x="32" y="138" class="col-text">win_reason</text><text x="160" y="138" class="col-type">VARCHAR</text>
+    <text x="32" y="160" class="col-text">start_tick</text><text x="160" y="160" class="col-type">INT</text>
+    <text x="32" y="182" class="col-text">end_tick</text><text x="160" y="182" class="col-type">INT</text>
+  </g>
+
+  <!-- ============ PLAYERS ============ -->
+  <g transform="translate(450, 80)">
+    <rect class="entity-box" width="200" height="175" />
+    <rect class="entity-header" width="200" height="30" />
+    <text x="100" y="20" text-anchor="middle" class="header-text">players</text>
+    <text x="12" y="50" class="pk">PK</text><text x="32" y="50" class="col-text">player_id</text><text x="160" y="50" class="col-type">UUID</text>
+    <text x="32" y="72" class="col-text">steam_id</text><text x="160" y="72" class="col-type">BIGINT</text>
+    <text x="32" y="94" class="col-text">display_name</text><text x="160" y="94" class="col-type">VARCHAR</text>
+    <text x="32" y="116" class="col-text">rank</text><text x="160" y="116" class="col-type">INT</text>
+    <text x="32" y="138" class="col-text">total_matches</text><text x="160" y="138" class="col-type">INT</text>
+    <text x="32" y="160" class="col-text">win_rate</text><text x="160" y="160" class="col-type">FLOAT</text>
+  </g>
+
+  <!-- ============ PLAYER_POSITIONS ============ -->
+  <g transform="translate(450, 310)">
+    <rect class="entity-box" width="220" height="219" />
+    <rect class="entity-header" width="220" height="30" />
+    <text x="110" y="20" text-anchor="middle" class="header-text">player_positions</text>
+    <text x="12" y="50" class="pk">PK</text><text x="32" y="50" class="col-text">position_id</text><text x="170" y="50" class="col-type">UUID</text>
+    <text x="12" y="72" class="fk">FK</text><text x="32" y="72" class="col-text">round_id</text><text x="170" y="72" class="col-type">UUID</text>
+    <text x="12" y="94" class="fk">FK</text><text x="32" y="94" class="col-text">player_id</text><text x="170" y="94" class="col-type">UUID</text>
+    <text x="32" y="116" class="col-text">tick</text><text x="170" y="116" class="col-type">INT</text>
+    <text x="32" y="138" class="col-text">x</text><text x="170" y="138" class="col-type">FLOAT</text>
+    <text x="32" y="160" class="col-text">y</text><text x="170" y="160" class="col-type">FLOAT</text>
+    <text x="32" y="182" class="col-text">z</text><text x="170" y="182" class="col-type">FLOAT</text>
+    <text x="32" y="204" class="col-text">is_alive</text><text x="170" y="204" class="col-type">BOOL</text>
+  </g>
+
+  <!-- ============ ECONOMIES ============ -->
+  <g transform="translate(820, 80)">
+    <rect class="entity-box" width="230" height="219" />
+    <rect class="entity-header" width="230" height="30" />
+    <text x="115" y="20" text-anchor="middle" class="header-text">economies</text>
+    <text x="12" y="50" class="pk">PK</text><text x="32" y="50" class="col-text">economy_id</text><text x="180" y="50" class="col-type">UUID</text>
+    <text x="12" y="72" class="fk">FK</text><text x="32" y="72" class="col-text">round_id</text><text x="180" y="72" class="col-type">UUID</text>
+    <text x="12" y="94" class="fk">FK</text><text x="32" y="94" class="col-text">player_id</text><text x="180" y="94" class="col-type">UUID</text>
+    <text x="32" y="116" class="col-text">equipment_value</text><text x="180" y="116" class="col-type">INT</text>
+    <text x="32" y="138" class="col-text">freeze_money</text><text x="180" y="138" class="col-type">INT</text>
+    <text x="32" y="160" class="col-text">loss_bonus</text><text x="180" y="160" class="col-type">INT</text>
+    <text x="32" y="182" class="col-text">buy_type</text><text x="180" y="182" class="col-type">ENUM</text>
+    <text x="32" y="204" class="col-text">side</text><text x="180" y="204" class="col-type">ENUM</text>
+  </g>
+
+  <!-- ============ PREDICTIONS ============ -->
+  <g transform="translate(820, 370)">
+    <rect class="entity-box" width="230" height="219" />
+    <rect class="entity-header" width="230" height="30" />
+    <text x="115" y="20" text-anchor="middle" class="header-text">predictions</text>
+    <text x="12" y="50" class="pk">PK</text><text x="32" y="50" class="col-text">prediction_id</text><text x="180" y="50" class="col-type">UUID</text>
+    <text x="12" y="72" class="fk">FK</text><text x="32" y="72" class="col-text">round_id</text><text x="180" y="72" class="col-type">UUID</text>
+    <text x="12" y="94" class="fk">FK</text><text x="32" y="94" class="col-text">player_id</text><text x="180" y="94" class="col-type">UUID</text>
+    <text x="32" y="116" class="col-text">predicted_route</text><text x="180" y="116" class="col-type">ENUM</text>
+    <text x="32" y="138" class="col-text">route_confidence</text><text x="180" y="138" class="col-type">FLOAT</text>
+    <text x="32" y="160" class="col-text">predicted_x</text><text x="180" y="160" class="col-type">FLOAT</text>
+    <text x="32" y="182" class="col-text">predicted_y</text><text x="180" y="182" class="col-type">FLOAT</text>
+    <text x="32" y="204" class="col-text">horizon_seconds</text><text x="180" y="204" class="col-type">INT</text>
+  </g>
+
+  <!-- ============ RELATIONSHIPS ============ -->
+
+  <!-- matches 1──* rounds -->
+  <path class="rel-line" d="M 130 255 L 130 310" marker-end="url(#many)" />
+  <text x="138" y="286" class="rel-label">1 : N</text>
+
+  <!-- rounds 1──* player_positions -->
+  <path class="rel-line" d="M 230 420 L 450 420" marker-end="url(#many)" />
+  <text x="330" y="412" class="rel-label">1 : N</text>
+
+  <!-- players 1──* player_positions -->
+  <path class="rel-line" d="M 550 255 L 550 310" marker-end="url(#many)" />
+  <text x="558" y="286" class="rel-label">1 : N</text>
+
+  <!-- rounds 1──* economies (up-right from rounds to economies) -->
+  <path class="rel-line" d="M 230 380 C 400 350, 700 220, 820 152" marker-end="url(#many)" />
+  <text x="520" y="280" class="rel-label">1 : N</text>
+
+  <!-- players 1──* economies -->
+  <path class="rel-line" d="M 650 165 L 820 165" marker-end="url(#many)" />
+  <text x="725" y="158" class="rel-label">1 : N</text>
+
+  <!-- rounds 1──* predictions -->
+  <path class="rel-line" d="M 230 450 C 500 530, 700 490, 820 470" marker-end="url(#many)" />
+  <text x="520" y="510" class="rel-label">1 : N</text>
+
+  <!-- players 1──* predictions -->
+  <path class="rel-line" d="M 650 220 C 750 300, 900 330, 935 370" marker-end="url(#many)" />
+  <text x="790" y="310" class="rel-label">1 : N</text>
+
+  <!-- Legend -->
+  <g transform="translate(20, 650)">
+    <text x="0" y="14" class="pk">PK</text><text x="22" y="14" class="col-text" style="font-size:10px">= Primary Key</text>
+    <text x="120" y="14" class="fk">FK</text><text x="140" y="14" class="col-text" style="font-size:10px">= Foreign Key</text>
+    <text x="260" y="14" class="rel-label" style="font-size:10px">──▶ = One-to-Many relationship</text>
+  </g>
+</svg>
+</body>
+</html>

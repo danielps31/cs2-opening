@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS2 Movement Predictor — Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  svg { display: block; }
+  text { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  .node-box { fill: var(--card, #1c1c1e); stroke: var(--border, #3a3a3c); stroke-width: 1.5; rx: 8; }
+  .node-box-accent { fill: var(--card, #1c1c1e); stroke: var(--accent, #6366f1); stroke-width: 2; rx: 8; }
+  .node-title { fill: var(--foreground, #e5e5e7); font-size: 13px; font-weight: 600; }
+  .node-subtitle { fill: var(--muted-foreground, #8e8e93); font-size: 10px; }
+  .section-label { fill: var(--accent, #6366f1); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+  .arrow-line { stroke: var(--muted-foreground, #8e8e93); stroke-width: 1.5; fill: none; }
+  .arrow-accent { stroke: var(--accent, #6366f1); stroke-width: 2; fill: none; }
+  .title-text { fill: var(--foreground, #e5e5e7); font-size: 18px; font-weight: 700; }
+  .subtitle-text { fill: var(--muted-foreground, #8e8e93); font-size: 11px; }
+  .icon-text { font-size: 20px; }
+  .badge { rx: 4; fill: var(--accent, #6366f1); opacity: 0.15; }
+  .badge-text { fill: var(--accent, #6366f1); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; }
+  marker polygon { fill: var(--accent, #6366f1); }
+  marker.muted polygon { fill: var(--muted-foreground, #8e8e93); }
+  .data-flow-label { fill: var(--muted-foreground, #8e8e93); font-size: 9px; font-style: italic; }
+  .phase-bg { fill: var(--border, #3a3a3c); opacity: 0.15; rx: 12; }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1100 680" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <polygon points="0,1.5 10,5 0,8.5" />
+    </marker>
+    <marker id="arr-muted" class="muted" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <polygon points="0,1.5 10,5 0,8.5" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="20" y="32" class="title-text">System Architecture</text>
+  <text x="20" y="50" class="subtitle-text">CS2 Movement Predictor — End-to-End Pipeline</text>
+
+  <!-- ═══════ Phase backgrounds ═══════ -->
+  <rect class="phase-bg" x="15" y="68" width="260" height="580" />
+  <rect class="phase-bg" x="290" y="68" width="240" height="580" />
+  <rect class="phase-bg" x="545" y="68" width="240" height="580" />
+  <rect class="phase-bg" x="800" y="68" width="280" height="580" />
+
+  <!-- Phase labels -->
+  <text x="145" y="90" text-anchor="middle" class="section-label">Data Ingestion</text>
+  <text x="410" y="90" text-anchor="middle" class="section-label">Processing</text>
+  <text x="665" y="90" text-anchor="middle" class="section-label">ML Pipeline</text>
+  <text x="940" y="90" text-anchor="middle" class="section-label">Serving</text>
+
+  <!-- ═══════ DATA INGESTION ═══════ -->
+
+  <!-- Steam API -->
+  <g transform="translate(35, 115)">
+    <rect class="node-box-accent" width="220" height="70" />
+    <text x="18" y="24" class="icon-text">🌐</text>
+    <text x="44" y="28" class="node-title">Steam Web API</text>
+    <text x="44" y="44" class="node-subtitle">Match history & sharing codes</text>
+    <rect class="badge" x="44" y="50" width="72" height="16" />
+    <text x="50" y="61" class="badge-text">steam_api.py</text>
+  </g>
+
+  <!-- Demo Downloader -->
+  <g transform="translate(35, 215)">
+    <rect class="node-box" width="220" height="70" />
+    <text x="18" y="24" class="icon-text">⬇️</text>
+    <text x="44" y="28" class="node-title">Demo Downloader</text>
+    <text x="44" y="44" class="node-subtitle">Fetch .dem files from Valve CDN</text>
+    <rect class="badge" x="44" y="50" width="48" height="16" />
+    <text x="50" y="61" class="badge-text">httpx</text>
+  </g>
+
+  <!-- Raw Storage -->
+  <g transform="translate(35, 315)">
+    <rect class="node-box" width="220" height="58" />
+    <text x="18" y="22" class="icon-text">📁</text>
+    <text x="44" y="26" class="node-title">Raw Demo Storage</text>
+    <text x="44" y="42" class="node-subtitle">data/raw/demos/*.dem</text>
+  </g>
+
+  <!-- Arrows: Steam → Downloader → Storage -->
+  <path class="arrow-accent" d="M 145 185 L 145 215" marker-end="url(#arr)" />
+  <text x="152" y="204" class="data-flow-label">sharing codes</text>
+  <path class="arrow-line" d="M 145 285 L 145 315" marker-end="url(#arr-muted)" />
+  <text x="152" y="304" class="data-flow-label">.dem files</text>
+
+  <!-- ═══════ PROCESSING ═══════ -->
+
+  <!-- Demo Parser -->
+  <g transform="translate(305, 115)">
+    <rect class="node-box-accent" width="210" height="80" />
+    <text x="18" y="24" class="icon-text">⚙️</text>
+    <text x="44" y="28" class="node-title">Demo Parser</text>
+    <text x="44" y="44" class="node-subtitle">Extract ticks, events, positions</text>
+    <rect class="badge" x="44" y="52" width="90" height="16" />
+    <text x="50" y="63" class="badge-text">demo_parser.py</text>
+    <rect class="badge" x="140" y="52" width="60" height="16" />
+    <text x="146" y="63" class="badge-text">demoparser2</text>
+  </g>
+
+  <!-- Feature Engineer -->
+  <g transform="translate(305, 235)">
+    <rect class="node-box-accent" width="210" height="90" />
+    <text x="18" y="24" class="icon-text">🔧</text>
+    <text x="44" y="28" class="node-title">Feature Engineer</text>
+    <text x="44" y="44" class="node-subtitle">Economy · Side · Map · Round</text>
+    <text x="44" y="58" class="node-subtitle">Score · Buy type · Spawn pos</text>
+    <rect class="badge" x="44" y="66" width="72" height="16" />
+    <text x="50" y="77" class="badge-text">engineer.py</text>
+  </g>
+
+  <!-- Feature Store -->
+  <g transform="translate(305, 365)">
+    <rect class="node-box" width="210" height="58" />
+    <text x="18" y="22" class="icon-text">🗄️</text>
+    <text x="44" y="26" class="node-title">Feature Store</text>
+    <text x="44" y="42" class="node-subtitle">data/processed/*.parquet</text>
+  </g>
+
+  <!-- Database -->
+  <g transform="translate(305, 455)">
+    <rect class="node-box" width="210" height="70" />
+    <text x="18" y="24" class="icon-text">🛢️</text>
+    <text x="44" y="28" class="node-title">SQLite / PostgreSQL</text>
+    <text x="44" y="44" class="node-subtitle">matches · rounds · players</text>
+    <text x="44" y="58" class="node-subtitle">positions · economies</text>
+  </g>
+
+  <!-- Arrows: Storage → Parser → Features → Store -->
+  <path class="arrow-accent" d="M 255 345 L 305 155" marker-end="url(#arr)" />
+  <text x="265" y="240" class="data-flow-label">.dem</text>
+  <path class="arrow-line" d="M 410 195 L 410 235" marker-end="url(#arr-muted)" />
+  <text x="418" y="218" class="data-flow-label">parsed data</text>
+  <path class="arrow-line" d="M 410 325 L 410 365" marker-end="url(#arr-muted)" />
+  <text x="418" y="348" class="data-flow-label">features</text>
+  <path class="arrow-line" d="M 410 423 L 410 455" marker-end="url(#arr-muted)" />
+
+  <!-- ═══════ ML PIPELINE ═══════ -->
+
+  <!-- Route Classifier -->
+  <g transform="translate(560, 115)">
+    <rect class="node-box-accent" width="210" height="80" />
+    <text x="18" y="24" class="icon-text">🎯</text>
+    <text x="44" y="28" class="node-title">Route Classifier</text>
+    <text x="44" y="44" class="node-subtitle">XGBoost — A / B / Mid</text>
+    <rect class="badge" x="44" y="52" width="110" height="16" />
+    <text x="50" y="63" class="badge-text">route_classifier.py</text>
+  </g>
+
+  <!-- Position Predictor -->
+  <g transform="translate(560, 235)">
+    <rect class="node-box-accent" width="210" height="80" />
+    <text x="18" y="24" class="icon-text">📍</text>
+    <text x="44" y="28" class="node-title">Position Predictor</text>
+    <text x="44" y="44" class="node-subtitle">MLP — x, y at T+5/10/15s</text>
+    <rect class="badge" x="44" y="52" width="120" height="16" />
+    <text x="50" y="63" class="badge-text">position_predictor.py</text>
+  </g>
+
+  <!-- Training Pipeline -->
+  <g transform="translate(560, 365)">
+    <rect class="node-box" width="210" height="58" />
+    <text x="18" y="22" class="icon-text">📊</text>
+    <text x="44" y="26" class="node-title">Training Pipeline</text>
+    <text x="44" y="42" class="node-subtitle">Train / Validate / Evaluate</text>
+  </g>
+
+  <!-- Visualization -->
+  <g transform="translate(560, 455)">
+    <rect class="node-box" width="210" height="70" />
+    <text x="18" y="24" class="icon-text">🗺️</text>
+    <text x="44" y="28" class="node-title">Visualization</text>
+    <text x="44" y="44" class="node-subtitle">Position heatmaps on radar</text>
+    <rect class="badge" x="44" y="52" width="72" height="16" />
+    <text x="50" y="63" class="badge-text">heatmap.py</text>
+  </g>
+
+  <!-- Arrows: Features → Models -->
+  <path class="arrow-accent" d="M 515 380 L 560 155" marker-end="url(#arr)" />
+  <path class="arrow-accent" d="M 515 390 L 560 275" marker-end="url(#arr)" />
+  <text x="522" y="260" class="data-flow-label">features</text>
+  <path class="arrow-line" d="M 665 423 L 665 455" marker-end="url(#arr-muted)" />
+  <!-- Training feeds models -->
+  <path class="arrow-line" d="M 620 365 L 620 315" marker-end="url(#arr-muted)" />
+  <path class="arrow-line" d="M 620 365 L 620 195" marker-end="url(#arr-muted)" />
+
+  <!-- ═══════ SERVING ═══════ -->
+
+  <!-- Prediction API -->
+  <g transform="translate(820, 115)">
+    <rect class="node-box-accent" width="240" height="80" />
+    <text x="18" y="24" class="icon-text">🚀</text>
+    <text x="44" y="28" class="node-title">Prediction API</text>
+    <text x="44" y="44" class="node-subtitle">FastAPI — /predict endpoint</text>
+    <rect class="badge" x="44" y="52" width="60" height="16" />
+    <text x="50" y="63" class="badge-text">server.py</text>
+    <rect class="badge" x="112" y="52" width="56" height="16" />
+    <text x="118" y="63" class="badge-text">uvicorn</text>
+  </g>
+
+  <!-- Client / Consumer -->
+  <g transform="translate(820, 235)">
+    <rect class="node-box" width="240" height="70" />
+    <text x="18" y="24" class="icon-text">💻</text>
+    <text x="44" y="28" class="node-title">Client Applications</text>
+    <text x="44" y="44" class="node-subtitle">CS2 overlay · Dashboard · Bot</text>
+  </g>
+
+  <!-- Model Config -->
+  <g transform="translate(820, 345)">
+    <rect class="node-box" width="240" height="58" />
+    <text x="18" y="22" class="icon-text">⚙️</text>
+    <text x="44" y="26" class="node-title">Configuration</text>
+    <text x="44" y="42" class="node-subtitle">model_config.yaml · steam_config.yaml</text>
+  </g>
+
+  <!-- Arrows: Models → API → Client -->
+  <path class="arrow-accent" d="M 770 155 L 820 155" marker-end="url(#arr)" />
+  <path class="arrow-accent" d="M 770 275 L 820 155" marker-end="url(#arr)" />
+  <text x="775" y="210" class="data-flow-label">models</text>
+  <path class="arrow-line" d="M 940 195 L 940 235" marker-end="url(#arr-muted)" />
+  <text x="948" y="218" class="data-flow-label">JSON</text>
+
+  <!-- Config feeds everything -->
+  <path class="arrow-line" d="M 940 345 L 940 195" marker-end="url(#arr-muted)" stroke-dasharray="4 3" />
+
+  <!-- ═══════ BOTTOM LEGEND ═══════ -->
+  <g transform="translate(20, 620)">
+    <rect class="node-box-accent" width="14" height="14" />
+    <text x="20" y="12" class="node-subtitle">Core component</text>
+    <rect class="node-box" x="130" width="14" height="14" />
+    <text x="150" y="12" class="node-subtitle">Supporting component</text>
+    <line x1="260" y1="7" x2="290" y2="7" class="arrow-accent" marker-end="url(#arr)" />
+    <text x="296" y="12" class="node-subtitle">Primary data flow</text>
+    <line x1="420" y1="7" x2="450" y2="7" class="arrow-line" marker-end="url(#arr-muted)" />
+    <text x="456" y="12" class="node-subtitle">Secondary data flow</text>
+  </g>
+</svg>
+</body>
+</html>

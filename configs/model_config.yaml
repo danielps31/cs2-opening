@@ -1,0 +1,51 @@
+route_classifier:
+  model_type: xgboost
+  params:
+    n_estimators: 500
+    max_depth: 8
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    objective: multi:softprob
+    num_class: 3  # A, B, Mid
+    eval_metric: mlogloss
+  classes:
+    - A_site
+    - B_site
+    - Mid
+
+position_predictor:
+  model_type: mlp
+  params:
+    hidden_layers: [256, 128, 64]
+    dropout: 0.3
+    learning_rate: 0.001
+    batch_size: 256
+    epochs: 100
+    activation: relu
+  prediction_horizons_seconds: [5, 10, 15]
+  output_dim: 2  # x, y coordinates
+
+features:
+  economy:
+    - equipment_value
+    - freeze_time_end_money
+    - loss_bonus
+    - team_economy_avg
+  context:
+    - side  # T/CT
+    - map_name
+    - round_number
+    - score_differential
+    - buy_type  # eco/force/full
+    - previous_round_winner
+  positional:
+    - spawn_x
+    - spawn_y
+    - tick_rate: 64
+
+training:
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  random_seed: 42
